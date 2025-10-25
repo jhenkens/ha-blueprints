@@ -1,5 +1,5 @@
 blueprint:
-  name: Linked Entities
+  name: One Way Linked Entities
   description: >-
 
     [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Falexdelprete%2Fha-blueprints%2Fmain%2Fha-blueprint-linked-entities.yaml)
@@ -48,6 +48,12 @@ blueprint:
 
   domain: automation
   input:
+    parent_entity:
+      name: Parent Entities
+      description: Entities whose state and attributes will be linked (if any of them transitions to ON state, all will be ON. Same for the OFF, BRIGHTNESS, COLOR_TEMP, and SPEED states).
+      selector:
+        entity:
+          multiple: true
     linked_entity:
       name: Linked Entities
       description: Entities whose state and attributes will be linked (if any of them transitions to ON state, all will be ON. Same for the OFF, BRIGHTNESS, COLOR_TEMP, and SPEED states).
@@ -74,25 +80,25 @@ variables:
 trigger:
   - platform: state
     id: turn_on
-    entity_id: !input linked_entity
+    entity_id: !input parent_entity
     from: "off"
     to: "on"
   - platform: state
     id: turn_off
-    entity_id: !input linked_entity
+    entity_id: !input parent_entity
     from: "on"
     to: "off"
   - platform: state
     id: set_speed
-    entity_id: !input linked_entity
+    entity_id: !input parent_entity
     attribute: percentage
   - platform: state
     id: set_brightness
-    entity_id: !input linked_entity
+    entity_id: !input parent_entity
     attribute: brightness
   - platform: state
     id: set_color_temp
-    entity_id: !input linked_entity
+    entity_id: !input parent_entity
     attribute: color_temp
 
 condition:
