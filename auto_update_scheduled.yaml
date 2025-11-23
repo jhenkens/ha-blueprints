@@ -1,12 +1,14 @@
 blueprint:
   name: Home Assistant Auto-update on a schedule base
-  author: Edward Firmo (https://github.com/edwardtfn)
+  author: Johan Henkens
   homeassistant:
     min_version: '2024.8.0'
   description: >
     # Home Assistant Auto-update
 
     Update Home Assistant automatically when a new update is available.
+
+    Forked from Edward Firmo (https://github.com/edwardtfn)
 
     v2024.9.30.0
 
@@ -617,7 +619,7 @@ action:
             }}
           last_backup_timestamp: '{{ last_backup_timestamp_list | max if last_backup_timestamp_list | count > 0 else None }}'
       - alias: Check if backup state is defined
-        if: '{{ last_backup_timestamp != None }}'
+        if: '{{ last_backup_timestamp == None }}'
         then:
           - stop: "Backup State sensor not found"
       - alias: Check age of last uploaded backup
