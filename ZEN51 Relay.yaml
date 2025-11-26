@@ -20,11 +20,18 @@ blueprint:
           model: ZEN51
           multiple: false
 
+    enable_auto_configuration:
+      name: "Enable automatic device configuration"
+      description: Automatically configure device parameters when automation is reloaded (scene control, local control).
+      default: true
+      selector:
+        boolean:
+
     local_control:
       name: "Configuration: Local phyiscal control"
       description: Enable or disable connected switch controlling relay on/off.
       default: 'undefined'
-      selector: 
+      selector:
         select:
           mode: dropdown
           options:
@@ -46,6 +53,11 @@ blueprint:
 mode: parallel
 max_exceeded: silent
 
+variables:
+  device_id: !input device_id
+  enable_auto_configuration: !input enable_auto_configuration
+  local_control: !input local_control
+
 trigger:
   - platform: event
     event_type: zwave_js_value_notification
@@ -65,23 +77,23 @@ action:
   - choose:
       # initialize
       # docs: https://www.support.getzooz.com/kb/article/796-zen51-dry-contact-relay-advanced-settings/
-      - conditions: "{{ ('event' in trigger) and trigger.event.event_type == 'automation_reloaded' }}"
+      - conditions: "{{ enable_auto_configuration and ('event' in trigger) and trigger.event.event_type == 'automation_reloaded' }}"
         sequence:
           # enable scene control
           - alias: "zwavejs: Enable scene control"
             service: zwave_js.set_config_parameter
-            target: { device_id: !input device_id }
+            target: { device_id: "{{ device_id }}" }
             data: { parameter: 5, value: 1 }
 
           # setup local control
           - if:
               - condition: template
-                value_template: "{{ '!input local_control' != 'undefined' }}"
+                value_template: "{{ local_control != 'undefined' }}"
             then:
               - alias: "zwavejs: Setup local control"
                 service: zwave_js.set_config_parameter
-                target: { device_id: !input device_id }
-                data: { parameter: 6, value: !input local_control }
+                target: { device_id: "{{ device_id }}" }
+                data: { parameter: 6, value: "{{ local_control }}" }
 
       - conditions: "{{ scene_id == 'Scene 001' }}"
         sequence:

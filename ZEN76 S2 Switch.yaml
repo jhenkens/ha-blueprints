@@ -29,11 +29,18 @@ blueprint:
           model: ZEN76
           multiple: false
 
+    enable_auto_configuration:
+      name: "Enable automatic device configuration"
+      description: Automatically configure device parameters when automation is reloaded (scene control, local programming, local control).
+      default: true
+      selector:
+        boolean:
+
     local_control:
       name: "Configuration: Local phyiscal control"
       description: Enable or disable physical paddle on/off control (also known as "Smart Bulb Mode").
       default: 'undefined'
-      selector: 
+      selector:
         select:
           mode: dropdown
           options:
@@ -65,12 +72,15 @@ max_exceeded: silent
 
 variables:
   # docs: https://www.support.getzooz.com/kb/article/549-zen76-s2-on-off-switch-700-advanced-settings/
+  device_id: !input device_id
+  enable_auto_configuration: !input enable_auto_configuration
+  local_control: !input local_control
   const_scene_control_param: 10
   const_scene_control_enable: 1
   const_local_control_param: 12
   const_local_programming_param: 17
   const_local_programming_disable: 1
-  
+
 trigger:
   - platform: event
     event_type: zwave_js_value_notification
@@ -89,28 +99,28 @@ action:
       event_action: "{{ trigger.event.data.value if ('event' in trigger) }}"
   - choose:
       # initialize
-      - conditions: "{{ ('event' in trigger) and trigger.event.event_type == 'automation_reloaded' }}"
+      - conditions: "{{ enable_auto_configuration and ('event' in trigger) and trigger.event.event_type == 'automation_reloaded' }}"
         sequence:
           - alias: "zwavejs: Enable scene control"
             service: zwave_js.set_config_parameter
-            target: { device_id: !input device_id }
+            target: { device_id: "{{ device_id }}" }
             data: { parameter: "{{ const_scene_control_param }}", value: "{{ const_scene_control_enable }}" }
 
           - alias: "zwavejs: Disable local programming to allow 3-press actions. Requires Firmware 10.0+"
             service: zwave_js.set_config_parameter
             continue_on_error: true # avoid failure for older firmware
-            target: { device_id: !input device_id } 
+            target: { device_id: "{{ device_id }}" } 
             data: { parameter: "{{ const_local_programming_param }}", value: "{{ const_local_programming_disable }}" }
 
           # setup local control
           - if:
               - condition: template
-                value_template: "{{ '!input local_control' != 'undefined' }}"
+                value_template: "{{ local_control != 'undefined' }}"
             then:
               - alias: "zwavejs: Setup local control"
                 service: zwave_js.set_config_parameter
-                target: { device_id: !input device_id }
-                data: { parameter: "{{ const_local_control_param }}", value: !input local_control }
+                target: { device_id: "{{ device_id }}" }
+                data: { parameter: "{{ const_local_control_param }}", value: "{{ local_control }}" }
 
       - conditions: "{{ scene_id == 'Scene 001' }}"
         sequence:

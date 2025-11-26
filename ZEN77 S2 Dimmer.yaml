@@ -1,6 +1,6 @@
 blueprint:
   name: "Zooz ZEN77 S2 Dimmer"
-  author: gregmac
+  author: jhenkens
   homeassistant: { min_version: 2023.3.1 }
   domain: automation
   description: >
@@ -30,11 +30,18 @@ blueprint:
           model: ZEN77
           multiple: false
 
+    enable_auto_configuration:
+      name: "Enable automatic device configuration"
+      description: Automatically configure device parameters when automation is reloaded (scene control, local programming, local control).
+      default: true
+      selector:
+        boolean:
+
     local_control:
       name: "Configuration: Local phyiscal control"
       description: Enable or disable physical paddle on/off control (also known as "Smart Bulb Mode").
       default: 'undefined'
-      selector: 
+      selector:
         select:
           mode: dropdown
           options:
@@ -44,7 +51,6 @@ blueprint:
               value: '1'
             - label: Physical paddle control disabled (control via Z-Wave only)
               value: '0'
-
 
     button_1_1x:      { name: "Paddle Up press 1x",   default: [], selector: { action: {} }, description: "Action to run when the button is pressed one time. Default: Turn on load." }
     button_1_2x:      { name: "Paddle Up press 2x",   default: [], selector: { action: {} }, description: "Action to run when the button is pressed two times." }
@@ -68,6 +74,7 @@ max_exceeded: silent
 variables:
   # docs: https://www.support.getzooz.com/kb/article/549-zen76-s2-on-off-switch-700-advanced-settings/
   device_id: !input device_id
+  enable_auto_configuration: !input enable_auto_configuration
   local_control: !input local_control
   const_scene_control_param: 13
   const_scene_control_enable: 1
@@ -93,7 +100,7 @@ action:
       event_action: "{{ trigger.event.data.value if ('event' in trigger) }}"
   - choose:
       # initialize
-      - conditions: "{{ ('event' in trigger) and trigger.event.event_type == 'automation_reloaded' }}"
+      - conditions: "{{ enable_auto_configuration and ('event' in trigger) and trigger.event.event_type == 'automation_reloaded' }}"
         sequence:
         
           # enable scene control
