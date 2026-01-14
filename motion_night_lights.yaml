@@ -1,0 +1,99 @@
+blueprint:
+  name: Integrated Motion Night Light
+  homeassistant:
+    min_version: "2023.3.0"
+  description: >-
+    For night light devices with integrated motion sensors
+  domain: automation
+  input:
+    motion_entities:
+      name: Motion entity
+      description: This motion entity should have a light on the same device
+      default: []
+      selector:
+        entity:
+          multiple: true
+          domain: binary_sensor
+          device_class: motion
+
+mode: parallel
+max_exceeded: warning
+
+trigger:
+  - id: &id000 Motion Detected
+    platform: state
+    entity_id: !input motion_entities
+    from: "off"
+    to: "on"
+  - id: &id001 Motion Cleared
+    platform: state
+    entity_id: !input motion_entities
+    from: "on"
+    to: "off"
+    for:
+      minutes: 1
+  - id: &id003 HA Start
+    platform: homeassistant
+    event: start
+
+variables:
+  input_motion_entities: !input motion_entities
+  input_light_entities: "{{ input_motion_entities | map('device_id') | map('device_entities') | map('select','search', '^light[.]') | map('first') | list }}"
+  trigger_motion_entity: >-
+    {%- if trigger is defined and trigger.entity_id is defined -%}
+    {{ trigger.entity_id }}
+    {%- endif -%}
+  trigger_light_entity: >-
+    {%- if trigger_motion_entity -%}
+    {{ device_entities(device_id(trigger_motion_entity )) | select('search', '^light[.]') | first }}
+    {%- endif -%}
+
+condition:
+  - condition: or
+    conditions:
+      - alias: "Motion Detected Condition"
+        condition: and
+        conditions:
+          - condition: trigger
+            id: *id000
+          - condition: sun
+            after: sunset
+            before: sunrise
+          - "{{ is_state(trigger_light_entity,'off') }}"
+      - alias: "Motion Cleared Condition"
+        condition: and
+        conditions:
+          - condition: trigger
+            id: *id001
+          - "{{ is_state(trigger_light_entity,'on') }}"
+      - alias: "Default"
+        condition: template
+        value_template: "{{ not trigger_motion_entity }}"
+
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: *id000
+        sequence:
+          - service: light.turn_on
+            data:
+              transition: 3
+              kelvin: 2000
+            target:
+              entity_id: "{{ trigger_light_entity }}"
+      - conditions:
+          - condition: trigger
+            id: *id001
+        sequence:
+          - service: light.turn_off
+            data:
+              transition: 10
+            target:
+              entity_id: "{{ trigger_light_entity }}"
+    default:
+      - service: light.turn_off
+        data:
+          transition: 10
+        target:
+          entity_id: "{{ input_light_entities }}"

@@ -1,0 +1,161 @@
+blueprint:
+  name: Temperature Deviation Alert
+  description: Alerts on temperature deviations
+  domain: automation
+  input:
+    temperature_sensor:
+      name: "Temperature Sensor"
+      default: ''
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+    alert_high_temperature_1:
+      name: "High Temperature Alert Threshold 1"
+      default: 40
+      selector:
+        number:
+          min: -20
+          max: 60
+          step: 1
+          unit_of_measurement: °F
+    alert_high_delay_1:
+      name: "High Temperature Alert Delay 1"
+      description: "Delay in minutes before high temperature alert"
+      default: 30
+      selector:
+        number:
+          min: 0
+          max: 3600
+          step: 1
+          unit_of_measurement: minutes
+    alert_high_temperature_2:
+      name: "High Temperature Alert Threshold 2"
+      default: 50
+      selector:
+        number:
+          min: -20
+          max: 60
+          step: 1
+          unit_of_measurement: °F
+    alert_high_delay_2:
+      name: "High Temperature Alert Delay 2"
+      description: "Delay before high temperature alert"
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 3600
+          step: 1
+          unit_of_measurement: minutes
+    max_alerts:
+      name: Max Alert Notifications
+      description: "How often should the alert get triggered while the alert is active"
+      default: 10
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: count
+    repeat_delay:
+      name: Repeat Alert Delay
+      description: "Time to wait until an alert notification will be send (subsequently)"
+      default: 900
+      selector:
+        number:
+          min: 0
+          max: 3600
+          unit_of_measurement: seconds
+    helper_boolean:
+      name: "Helper input boolean"
+      description: "Used by the automation to help keep state"
+      selector:
+        entity:
+          domain: input_boolean
+variables: 
+  temperature_sensor: !input temperature_sensor
+  friendly_name: "{{ state_attr(temperature_sensor,'friendly_name') }}"
+  alert_high_temperature_1: !input alert_high_temperature_1
+  helper_boolean: !input helper_boolean
+mode: restart
+max_exceeded: silent
+trigger:
+- platform: numeric_state
+  id: high_1
+  entity_id: !input temperature_sensor
+  above: !input alert_high_temperature_1
+  for:
+    minutes: !input alert_high_delay_1
+- platform: numeric_state
+  id: high_2
+  entity_id: !input temperature_sensor
+  above: !input alert_high_temperature_2
+  for:
+    minutes: !input alert_high_delay_2
+- platform: numeric_state
+  id: return
+  entity_id: !input temperature_sensor
+  below: !input alert_high_temperature_1
+  for:
+    minutes: 1
+- platform: homeassistant
+  event: start
+action:
+- choose:
+  - alias: "High Temp"
+    conditions:
+      - condition: and
+        conditions:
+          - condition: not
+            conditions:
+              - condition: trigger
+                id: return
+          - condition: template
+            value_template: "{{ states(temperature_sensor) | float(0.0) > alert_high_temperature_1}}"
+    sequence:
+      - service: input_boolean.turn_on
+        entity_id: !input helper_boolean
+      - repeat:
+          count: !input max_alerts
+          sequence:
+            # Break conditions (aka. stop the loop)
+            - condition: template
+              value_template: "{{ states(temperature_sensor) | float > alert_high_temperature_1}}"
+            - condition: state
+              entity_id: !input helper_boolean
+              state: 'on'
+
+            - variables:
+                sensor_temp: '{{ states(temperature_sensor) }}'
+            # Notification Actions
+            - service: notify.critical
+              data_template:
+                message: '{{ friendly_name }} {{ sensor_temp }}F temperature alert! - {{now().strftime("%H:%M:%S on %m/%d/%y")}}'
+            
+            # Wait
+            - wait_for_trigger:
+                - platform: template
+                  value_template: "{{ states(temperature_sensor) | float < alert_high_temperature_1}}"
+                - platform: state
+                  entity_id: !input helper_boolean
+                  to: 'off'
+              timeout: !input repeat_delay
+
+  - alias: "Returned"
+    conditions:
+      condition: and
+      conditions:
+        - condition: trigger
+          id: return
+        - condition: state
+          entity_id: !input helper_boolean
+          state: 'on'
+    sequence:
+      - service: input_boolean.turn_off
+        entity_id: !input helper_boolean
+      - variables:
+          sensor_temp: '{{ states(temperature_sensor) }}'
+      - service: notify.default
+        data_template:
+          message: "{{ friendly_name }} temperature alert cleared ({{ sensor_temp }}F) - {{now().strftime('%H:%M:%S on %m/%d/%y')}}"
+    

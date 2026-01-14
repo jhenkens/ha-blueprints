@@ -1,0 +1,430 @@
+blueprint:
+  name: Home Assistant Auto-Skip Updates
+  author: Johan Henkens (https://github.com/jhenkens)
+  homeassistant:
+    min_version: 2023.3.0
+  description: >
+    # Home Assistant Auto-Skip Updates
+
+    Auto skip new updates when they become available. Use this in conjunction 
+    with [Home Assistant Auto-update on a schedule base](https://github.com/edwardtfn/HomeAssistant-Config/blob/main/blueprints/automation/EdwardTFN/auto_update_scheduled.yaml).
+
+    This will hide new updates when they become available, so that you don't 
+    have to see them in the settings page until the auto-update automation next 
+    runs. You can combine this with custom sensors or [auto-entity lovelace 
+    cards](https://github.com/thomasloven/lovelace-auto-entities) to show you 
+    the updates in a more controlled fashion.
+
+    ## Requirements:
+
+    This blueprint has a few requirements.
+
+    1. Create an `input_datetime` helper with date and time support. This will
+    be updated every time we run in order to create a trigger point before
+    the next auto-update execution
+    2. Create a [trigger based template 
+    sensor](https://www.home-assistant.io/integrations/template/#trigger-based-template-binary-sensors-buttons-numbers-selects-and-sensors) 
+    via yaml to store the automation's state. I place mine in a [package](https://www.home-assistant.io/docs/configuration/packages/#create-a-packages-folder).
+
+
+    `configuration.yaml`
+
+    ```
+    homeassistant:
+      packages: !include_dir_merge_named packages/
+    ```
+
+    `packages/auto_skip_update/auto_skip_update.yaml`
+
+    ```
+    template:
+      - trigger:
+          - platform: event
+            event_type: set_variable
+          - platform: event
+            event_type: remove_variable
+        sensor:
+          - unique_id: 4a4c8e53-9e68-4198-9cc5-b336e228ea4d
+            name: Variables
+            state: Variables
+            attributes:
+              variables: >
+                {% set current = this.attributes.get('variables', {}) %}
+                {% if trigger.event.event_type == 'set_variable' %}
+                  {% set new = {trigger.event.data.key: trigger.event.data.value} %}
+                  {{ dict(current, **new) }}
+                {% elif trigger.event.event_type == 'remove_variable' %}
+                  {{ dict(current.items() | rejectattr('0', 'eq', trigger.event.data.key)) }}
+                {% endif %}
+    ```
+
+    ## Extras:
+
+    These examples all use the same `packages` syntax from above.
+
+    ### Unskip all packages
+
+    Having a button to unskip all updates is useful. You can use this script:
+
+    ```
+    script:
+      unskip_all_updates:
+        sequence:
+          - variables:
+              hidden_updates: >
+                {{
+                  states.update
+                  | selectattr('attributes.skipped_version',"defined")
+                  | rejectattr('attributes.skipped_version',"eq", None)
+                  | map(attribute="entity_id") | list
+                }}
+          - repeat:
+              for_each: "{{ hidden_updates }}"
+              sequence:
+                - alias: Remove from variable dict
+                  event: remove_variable
+                  event_data:
+                    key: _ahu.{{ repeat.item }}
+                - alias: Clear update skip
+                  service: update.clear_skipped
+                  target:
+                    entity_id: "{{ repeat.item }}"
+    ```
+
+    ### Show available updates as a sensor, including hidden
+
+    I show my updates via a small [mushroom chip](https://github.com/piitaya/lovelace-mushroom/blob/main/docs/cards/chips.md)
+    and I wanted it to show all updates, including skipped. Yes, I know, showing the 
+    skipped updates, why skip? Well, I didn't want my sidebar cluttered up! I delay
+    my major core/OS updates by half a month.
+
+    ```
+    template:
+      - sensor:
+          - name: Updates Available Count
+            state: >
+              {{
+                (
+                  (states.update
+                  | selectattr('attributes.skipped_version',"defined")
+                  | rejectattr('attributes.skipped_version',"eq", None)
+                  | list)
+                  +
+                  (states.update
+                  | selectattr('state',"eq", "on")
+                  | list)
+                ) | map(attribute="entity_id") | unique | list | count
+              }}
+            state_class: measurement
+      - binary_sensor:
+          - name: Updates Available
+            state: >
+              {{ states('sensor.updates_available_count') | int(0) > 0 }}
+    ```
+
+    ### Show available updates (including skipped) via [auto-entity lovelace cards](https://github.com/thomasloven/lovelace-auto-entities) 
+
+    ```
+    type: custom:auto-entities
+    filter:
+      include:
+        - domain: update
+          options:
+            type: custom:mushroom-update-card
+            layout: horizontal
+            show_buttons_control: true
+            use_entity_picture: true
+            collapsible_controls: false
+          state: 'on'
+          sort:
+            method: name
+        - domain: update
+          options:
+            type: custom:mushroom-update-card
+            layout: horizontal
+            show_buttons_control: true
+            use_entity_picture: true
+            collapsible_controls: false
+          state: 'off'
+          attributes:
+            skipped_version: '*'
+          sort:
+            method: name
+      exclude:
+        - state: unavailable
+    show_empty: true
+    card:
+      type: entities
+    card_param: entities
+    sort:
+      method: name
+    ```
+
+  domain: automation
+  # source_url:
+  input:
+    verbose_logging_bool:
+      name: Log addon progress with verbosity to the logbook?
+      default: false
+      selector:
+        boolean: {}
+    timedelta_seconds:
+      name: Pre-update unskip period
+      description:
+        The amount of time the automation should pre-emptively run before the
+        configured auto-update schedules. I recommend setting this to 5 minutes,
+        but it is configurable if desired.
+      default:
+        hours: 0
+        minutes: 5
+        seconds: 0
+      selector:
+        duration:
+          enable_day: false
+    schedule_entities:
+      name: Schedule entities
+      description:
+        Select one or more schedules corresponding to auto-update executions.
+
+        You may have multiple schedules if you have a separate instance only
+        to run home assistant core/os updates.
+      default: []
+      selector:
+        entity:
+          multiple: true
+          domain:
+            - schedule
+    next_run_input_datetime:
+      name: Input Datetime Helper
+      description: >
+        `input_datetime` helper created for this blueprint to help with triggering
+        it at the appropriate time
+      default: []
+      selector:
+        entity:
+          multiple: false
+          domain:
+            - input_datetime
+    auto_skip_template_sensor:
+      name: Template Trigger Sensor Helper
+      description: >
+        Template trigger `sensor` to store automation state
+      default: []
+      selector:
+        entity:
+          multiple: false
+          domain:
+            - sensor
+mode: single
+max_exceeded: warning
+trigger_variables:
+  input_schedule_entities: !input schedule_entities
+  input_next_run_input_datetime: !input next_run_input_datetime
+trigger:
+  - id: HA Auto-Update Schedule based
+    platform: state
+    entity_id: !input schedule_entities
+  - id: Right before next schedule start
+    platform: time
+    at: !input next_run_input_datetime
+  - id: HA Start
+    platform: homeassistant
+    event: start
+  - id: New update
+    platform: template
+    value_template: >
+      {{ 
+        states.update | default([]) | selectattr('state','eq','on')
+        | list | count | int(0) 
+      }}
+  - id: New day
+    platform: time
+    at: 00:00:01
+  - id: Automations reloaded
+    platform: event
+    event_type: automation_reloaded
+variables:
+  input_schedule_entities: !input schedule_entities
+  input_next_run_input_datetime: !input next_run_input_datetime
+  input_verbose_logging_bool: !input verbose_logging_bool
+  input_auto_skip_template_sensor: !input auto_skip_template_sensor
+  temp_timedelta_seconds: !input timedelta_seconds
+  input_timedelta_seconds: >
+    {{
+      timedelta(
+        hours=temp_timedelta_seconds.hours,
+        minutes=temp_timedelta_seconds.minutes,
+        seconds=temp_timedelta_seconds.seconds
+      ).total_seconds()
+    }}
+action:
+  - delay:
+      seconds: 5
+  - &recalculate-variables
+    alias: Recalculate Variables
+    variables:
+      inside_update_window: |
+        {{
+          (
+            states.schedule | default([]) 
+            | selectattr("state","eq","on") 
+            | selectattr("entity_id", "in", input_schedule_entities) 
+            | list | count | int(0)
+          ) > 0 
+        }}
+      next_event: |
+        {{
+          states.schedule | default([]) 
+          | selectattr("state","eq","off") 
+          | selectattr("entity_id", "in", input_schedule_entities) 
+          | map(attribute="attributes.next_event")
+          | sort | first | as_timestamp
+        }}
+      next_run_input_datetime_val: "{{ next_event - input_timedelta_seconds }}"
+      schedule_about_to_start: |
+        {{
+          (not inside_update_window)
+          and (as_timestamp(now()) > next_run_input_datetime_val)
+        }}
+      auto_skipped_updates: >
+        {% set ns = namespace(entities=[]) %}
+        {% for key, value in states[input_auto_skip_template_sensor].attributes.get("variables",{}).items() %}
+          {% if key.startswith("_ahu.") %} 
+            {% set ns.entities = ns.entities + [[key[5:], value]] %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.entities }}
+      missing_entities: >
+        {%- set ns = namespace(entities=[]) -%}
+        {%- for update, details in auto_skipped_updates -%}
+          {% if (not states(update) is defined or not details)
+              or (details.get("installed_version","") != state_attr(update,"installed_version"))
+              or (details.get("skipped_version","") != state_attr(update,"skipped_version"))
+              or (details.get("latest_version","") != state_attr(update,"latest_version"))
+          %}
+            {% set ns.entities = ns.entities + [ update ] %}
+          {% endif %}
+        {%- endfor -%}
+        {{ ns.entities }}
+      should_remove_missing_entities: "{{ missing_entities | count > 0 }}"
+      available_updates: |
+        {{ 
+          states.update | default([])
+          | selectattr("state", "eq", "on")
+          | map(attribute="entity_id")
+          | list
+        }}
+      should_skip: |
+        {{ 
+          ((available_updates | count) > 0 ) and not (inside_update_window or schedule_about_to_start)
+        }}
+      should_unskip: |
+        {{ 
+          ((auto_skipped_updates | count) > 0 ) and (inside_update_window or schedule_about_to_start)
+        }}
+  - &verbose-logging
+    alias: If - (Logbook - Variables)
+    if: "{{ input_verbose_logging_bool }}"
+    then:
+      - alias: Logbook - variables
+        continue_on_error: true
+        service: logbook.log
+        data:
+          name: Auto-Hide Updates
+          entity_id: "{{ this.entity_id }}"
+          message: |-
+            Variables:
+              input_schedule_entities: {{ input_schedule_entities }}
+              input_next_run_input_datetime: {{ input_next_run_input_datetime }}
+              input_auto_skip_template_sensor: {{ input_auto_skip_template_sensor }}
+              input_verbose_logging_bool: {{ input_verbose_logging_bool }}
+              input_timedelta_seconds: {{ input_timedelta_seconds }}
+              inside_update_window: {{ inside_update_window }}
+              next_event: {{ next_event }}
+              next_run_input_datetime_val: {{ next_run_input_datetime_val }}
+              schedule_about_to_start: {{ schedule_about_to_start }}
+              should_skip: {{ should_skip }}
+              should_unskip: {{ should_unskip }}
+              auto_skipped_updates: {{ auto_skipped_updates }}
+              missing_entities: {{ missing_entities }}
+              available_updates: {{ available_updates }}
+    continue_on_error: true
+  - alias: Should update next run time
+    if: >-
+      {{ as_timestamp(states(input_next_run_input_datetime)) !=
+      next_run_input_datetime_val }}
+    then:
+      - alias: Update next run input_date_time
+        service: input_datetime.set_datetime
+        target:
+          entity_id: "{{ input_next_run_input_datetime }}"
+        data:
+          timestamp: "{{ next_run_input_datetime_val }}"
+  - *recalculate-variables
+  - *verbose-logging
+  - alias: If - (Remove outdated variable entries)
+    continue_on_error: true
+    if: "{{ should_remove_missing_entities }}"
+    then:
+      - alias: Remove outdated variable entries
+        repeat:
+          for_each: "{{ missing_entities }}"
+          sequence:
+            - alias: Remove missing update entity from variable
+              event: remove_variable
+              event_data:
+                key: "_ahu.{{ repeat.item }}"
+            - delay:
+                seconds: 1
+            - *recalculate-variables
+            - *verbose-logging
+  - *recalculate-variables
+  - *verbose-logging
+  - alias: If - (Skip updates)
+    continue_on_error: true
+    if: "{{ should_skip }}"
+    then:
+      - alias: Skip updates
+        continue_on_error: true
+        repeat:
+          for_each: "{{ available_updates }}"
+          sequence:
+            - alias: Add update to variable dict
+              event: set_variable
+              event_data:
+                key: "_ahu.{{ repeat.item }}"
+                value:
+                  skipped_version: "{{ state_attr(repeat.item, 'latest_version') }}"
+                  latest_version: "{{ state_attr(repeat.item, 'latest_version') }}"
+                  installed_version: "{{ state_attr(repeat.item, 'installed_version') }}"
+            - alias: Skip update
+              service: update.skip
+              target:
+                entity_id: "{{ repeat.item }}"
+            - delay:
+                seconds: 1
+            - *recalculate-variables
+            - *verbose-logging
+  - *recalculate-variables
+  - *verbose-logging
+  - alias: If - (Unskip updates)
+    continue_on_error: true
+    if: "{{ should_unskip }}"
+    then:
+      - alias: Unskip updates
+        continue_on_error: true
+        repeat:
+          for_each: "{{ auto_skipped_updates }}"
+          sequence:
+            - alias: Remove from variable dict
+              event: remove_variable
+              event_data:
+                key: "_ahu.{{ repeat.item[0] }}"
+            - alias: Skip update
+              service: update.clear_skipped
+              target:
+                entity_id: "{{ repeat.item[0] }}"
+            - delay:
+                seconds: 1
+            - *recalculate-variables
+            - *verbose-logging
