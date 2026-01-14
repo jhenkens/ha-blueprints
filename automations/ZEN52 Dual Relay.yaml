@@ -3,6 +3,7 @@ blueprint:
   author: gregmac
   homeassistant: { min_version: 2023.3.1 }
   domain: automation
+  source_url: https://raw.githubusercontent.com/jhenkens/ha-blueprints/main/automations/ZEN52%20Dual%20Relay.yaml
   description: >
     Setup actions for all the different input combinations on the
     Zooz ZEN52 Dual Relay.

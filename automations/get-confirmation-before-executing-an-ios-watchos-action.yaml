@@ -44,7 +44,7 @@ blueprint:
       default: true
       selector:
         boolean: {}
-  source_url: https://community.home-assistant.io/t/get-confirmation-before-executing-an-ios-watchos-action/388307
+  source_url: https://raw.githubusercontent.com/jhenkens/ha-blueprints/main/automations/get-confirmation-before-executing-an-ios-watchos-action.yaml
 mode: restart
 trigger:
   - platform: event

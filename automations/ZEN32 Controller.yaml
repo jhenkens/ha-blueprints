@@ -3,6 +3,7 @@ blueprint:
   author: gregmac
   homeassistant: { min_version: 2023.3.1 }
   domain: automation
+  source_url: https://raw.githubusercontent.com/jhenkens/ha-blueprints/main/automations/ZEN32%20Controller.yaml
   description: >
     Setup actions for individual buttons on the Zooz ZEN32 Scene Controller.
 
