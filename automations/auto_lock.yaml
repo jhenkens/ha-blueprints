@@ -1,9 +1,9 @@
 blueprint:
-  name: Auto Lock via Lock Code Manager
-  description: Automatically locks a door after it is unlocked via Lock Code Manager
+  name: Auto Lock
+  description: Automatically locks a door after it is unlocked
   domain: automation
   author: Johan Henkens (https://github.com/jhenkens)
-  source_url: https://raw.githubusercontent.com/jhenkens/ha-blueprints/main/automations/auto_lock_via_lcm.yaml
+  source_url: https://raw.githubusercontent.com/jhenkens/ha-blueprints/main/automations/auto_lock.yaml
   input:
     lock:
       name: Lock
@@ -44,6 +44,14 @@ blueprint:
         device:
           integration: mobile_app
           multiple: true
+    use_home_name:
+      name: Title Notifications Using Home's Friendly Name
+      description: >-
+        If enabled, notification titles will be prefixed with the friendly name
+        of zone.home (e.g. "My Home - Failed to Lock").
+      default: false
+      selector:
+        boolean:
 
 variables:
   lock: !input lock
@@ -51,13 +59,21 @@ variables:
   daily_check_enabled: !input daily_check_enabled
   daily_check_time: !input daily_check_time
   notify_devices: !input notify_devices
+  use_home_name: !input use_home_name
+  home_name: >-
+    {{ state_attr('zone.home', 'friendly_name') if use_home_name else '' }}
 
 trigger:
-  - platform: event
-    event_type: lock_code_manager_lock_state_changed
-    event_data:
-       entity_id: !input lock
-    id: LCM Event
+  - platform: state
+    entity_id: !input lock
+    from: locked
+    to: unlocked
+    id: Lock Unlocked
+  - platform: state
+    entity_id: !input lock
+    from: unlocked
+    to: locked
+    id: Lock Locked
   - platform: state
     entity_id: !input auto_lock_timer
     from: active
@@ -78,7 +94,7 @@ action:
               sequence:
                 - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
                   data:
-                    title: "Auto Lock Config Summary"
+                    title: "{{ home_name }}"
                     message: >-
                       Lock: {{ state_attr(lock, 'friendly_name') | default(lock) }} ({{ lock }})
                       Timer: {{ auto_lock_timer }}
@@ -89,61 +105,52 @@ action:
       - conditions:
           - condition: trigger
             id:
-              - LCM Event
+              - Lock Locked
         sequence:
-          - variables:
-              lock_state: "{{ trigger.event.data.state }}"
-              code_slot: "{{ trigger.event.data.code_slot }}"
-              code_slot_name: "{{ trigger.event.data.code_slot_name }}"
-              action_text: "{{ trigger.event.data.action_text }}"
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ lock_state == 'locked' }}"
-                sequence:
-                  - if:
-                    - condition: template
-                      value_template: "{{ auto_lock_timer != 'timer.none' }}"
-                    then:
-                      - if:
-                          - condition: state
-                            entity_id: !input auto_lock_timer
-                            state: active
-                        then:
-                          - service: timer.cancel
-                            metadata: {}
-                            data: {}
-                            target:
-                              entity_id: !input auto_lock_timer
-              - conditions:
-                  - condition: template
-                    value_template: "{{ lock_state == 'unlocked' }}"
-                sequence:
-                  - if:
-                      - condition: template
-                        value_template: "{{ auto_lock_timer != 'timer.none' }}"
-                    then:
-                      - if:
-                          - condition: state
-                            entity_id: !input auto_lock_timer
-                            state: active
-                        then:
-                          - service: timer.cancel
-                            metadata: {}
-                            data: {}
-                            target:
-                              entity_id: !input auto_lock_timer
-                          - service: timer.start
-                            metadata: {}
-                            data: {}
-                            target:
-                              entity_id: !input auto_lock_timer
-                        else:
-                          - service: timer.start
-                            metadata: {}
-                            data: {}
-                            target:
-                              entity_id: !input auto_lock_timer
+          - if:
+              - condition: template
+                value_template: "{{ auto_lock_timer != 'timer.none' }}"
+            then:
+              - if:
+                  - condition: state
+                    entity_id: !input auto_lock_timer
+                    state: active
+                then:
+                  - service: timer.cancel
+                    metadata: {}
+                    data: {}
+                    target:
+                      entity_id: !input auto_lock_timer
+      - conditions:
+          - condition: trigger
+            id:
+              - Lock Unlocked
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ auto_lock_timer != 'timer.none' }}"
+            then:
+              - if:
+                  - condition: state
+                    entity_id: !input auto_lock_timer
+                    state: active
+                then:
+                  - service: timer.cancel
+                    metadata: {}
+                    data: {}
+                    target:
+                      entity_id: !input auto_lock_timer
+                  - service: timer.start
+                    metadata: {}
+                    data: {}
+                    target:
+                      entity_id: !input auto_lock_timer
+                else:
+                  - service: timer.start
+                    metadata: {}
+                    data: {}
+                    target:
+                      entity_id: !input auto_lock_timer
       - conditions:
           - condition: or
             conditions:
@@ -171,7 +178,7 @@ action:
                   sequence:
                     - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
                       data:
-                        title: "Lock Unavailable"
+                        title: "{{ home_name }}"
                         message: >-
                           {{ state_attr(lock, 'friendly_name') | default(lock) }}
                           is {{ states(lock) }} and cannot be locked.
@@ -197,7 +204,7 @@ action:
                       sequence:
                         - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
                           data:
-                            title: "Failed to Lock"
+                            title: "{{ home_name }}"
                             message: >-
                               {{ state_attr(lock, 'friendly_name') | default(lock) }}
                               failed to lock after 60 seconds.

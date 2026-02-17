@@ -1,0 +1,64 @@
+blueprint:
+  name: Lock Code Manager Slot Notifications
+  description: Send notifications when specific Lock Code Manager code slots are used to lock or unlock a door
+  domain: automation
+  author: Johan Henkens (https://github.com/jhenkens)
+  source_url: https://raw.githubusercontent.com/jhenkens/ha-blueprints/main/automations/lcm_slot_notifications.yaml
+  input:
+    lcm_slot_devices:
+      name: Lock Code Manager Slot Devices
+      description: >-
+        Select the Lock Code Manager slot devices to monitor.
+        These are devices ending in "Slot X" created by the LCM integration.
+      selector:
+        device:
+          integration: lock_code_manager
+          multiple: true
+    notify_devices:
+      name: Notification Devices
+      description: Devices to notify when a monitored slot is used.
+      default: []
+      selector:
+        device:
+          integration: mobile_app
+          multiple: true
+    use_home_name:
+      name: Title Notifications Using Home's Friendly Name
+      description: >-
+        If enabled, notification titles will be prefixed with the friendly name
+        of zone.home (e.g. "My Home - Slot Name").
+      default: false
+      selector:
+        boolean:
+
+variables:
+  lcm_slot_devices: !input lcm_slot_devices
+  notify_devices: !input notify_devices
+  use_home_name: !input use_home_name
+  home_name: >-
+    {{ state_attr('zone.home', 'friendly_name') if use_home_name else '' }}
+
+trigger:
+  - platform: event
+    event_type: lock_code_manager_lock_state_changed
+
+condition:
+  - condition: template
+    value_template: >-
+      {{ trigger.event.data.lock_code_manager_config_entry_id in
+         (lcm_slot_devices | map('device_attr', 'config_entries') | sum(start=[]) | list) }}
+
+action:
+  - repeat:
+      for_each: "{{ notify_devices }}"
+      sequence:
+        - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+          data:
+            title: "{{ home_name }}"
+            message: >-
+              {{ state_attr(trigger.event.data.entity_id, 'friendly_name') | default(trigger.event.data.entity_id) }}
+              was {{ trigger.event.data.state }} by {{ trigger.event.data.code_slot_name }}
+              (Slot {{ trigger.event.data.code_slot }}) via {{ trigger.event.data.action_text }}.
+
+mode: queued
+max: 10
