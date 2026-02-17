@@ -13,6 +13,7 @@ blueprint:
       selector:
         device:
           integration: lock_code_manager
+          model: "Code Slot"
           multiple: true
     notify_devices:
       name: Notification Devices
@@ -30,6 +31,12 @@ blueprint:
       default: false
       selector:
         boolean:
+    notify_on_lock:
+      name: Notify on Lock Events
+      description: If enabled, also send notifications when the slot is used to lock the door.
+      default: false
+      selector:
+        boolean:
 
 variables:
   lcm_slot_devices: !input lcm_slot_devices
@@ -37,6 +44,7 @@ variables:
   use_home_name: !input use_home_name
   home_name: >-
     {{ state_attr('zone.home', 'friendly_name') if use_home_name else '' }}
+  notify_on_lock: !input notify_on_lock
 
 trigger:
   - platform: event
@@ -46,7 +54,10 @@ condition:
   - condition: template
     value_template: >-
       {{ trigger.event.data.lock_code_manager_config_entry_id in
-         (lcm_slot_devices | map('device_attr', 'config_entries') | sum(start=[]) | list) }}
+         (lcm_slot_devices | map('device_attr', 'config_entries') | map('list') | sum(start=[]) | list) }}
+  - condition: template
+    value_template: >-
+      {{ trigger.event.data.state != 'locked' or notify_on_lock }}
 
 action:
   - repeat:
