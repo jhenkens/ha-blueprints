@@ -1,6 +1,6 @@
 blueprint:
   name: "Zooz ZEN32 Scene Controller: Custom Scene Control"
-  author: gregmac
+  author: Johan Henkens (https://github.com/jhenkens)
   homeassistant: { min_version: 2023.3.1 }
   domain: automation
   source_url: https://raw.githubusercontent.com/jhenkens/ha-blueprints/main/automations/ZEN32%20Controller%20-%20Custom%20Scene.yaml

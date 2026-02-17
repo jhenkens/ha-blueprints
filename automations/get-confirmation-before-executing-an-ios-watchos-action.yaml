@@ -1,5 +1,6 @@
 blueprint:
   name: Confirm iOS Action
+  author: Johan Henkens (https://github.com/jhenkens)
   description: Get confirmation before executing an iOS action
   domain: automation
   input:

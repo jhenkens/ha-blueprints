@@ -1,6 +1,6 @@
 blueprint:
   name: Home Assistant Auto-update on a schedule base
-  author: Johan Henkens
+  author: Johan Henkens (https://github.com/jhenkens)
   homeassistant:
     min_version: '2024.8.0'
   description: >

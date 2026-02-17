@@ -1,5 +1,6 @@
 blueprint:
   name: Temperature Deviation Alert
+  author: Johan Henkens (https://github.com/jhenkens)
   description: Alerts on temperature deviations
   domain: automation
   source_url: https://raw.githubusercontent.com/jhenkens/ha-blueprints/main/automations/temperature_deviation_alert.yaml

@@ -1,0 +1,206 @@
+blueprint:
+  name: Auto Lock via Lock Code Manager
+  description: Automatically locks a door after it is unlocked via Lock Code Manager
+  domain: automation
+  author: Johan Henkens (https://github.com/jhenkens)
+  source_url: https://raw.githubusercontent.com/jhenkens/ha-blueprints/main/automations/auto_lock_via_lcm.yaml
+  input:
+    lock:
+      name: Lock
+      description: Lock
+      selector:
+        entity:
+          domain:
+            - lock
+          multiple: false
+    auto_lock_timer:
+      name: Auto Lock Timer
+      description: Auto Lock Timer
+      default: timer.none
+      selector:
+        entity:
+          domain:
+            - timer
+          multiple: false
+    daily_check_enabled:
+      name: Enable Daily Auto-Lock Check
+      description: Once a day, lock the door if it is unlocked (failsafe in case the timer breaks).
+      default: false
+      selector:
+        boolean:
+    daily_check_time:
+      name: Daily Auto-Lock Check Time
+      description: Time of day to run the daily auto-lock check. Only used if the daily check is enabled.
+      default: "02:00:00"
+      selector:
+        time:
+    notify_devices:
+      name: Notification Devices
+      description: >-
+        Devices to notify if the lock fails to lock after 60 seconds.
+        Leave empty to disable notifications.
+      default: []
+      selector:
+        device:
+          integration: mobile_app
+          multiple: true
+
+variables:
+  lock: !input lock
+  auto_lock_timer: !input auto_lock_timer
+  daily_check_enabled: !input daily_check_enabled
+  daily_check_time: !input daily_check_time
+  notify_devices: !input notify_devices
+
+trigger:
+  - platform: event
+    event_type: lock_code_manager_lock_state_changed
+    event_data:
+       entity_id: !input lock
+    id: LCM Event
+  - platform: state
+    entity_id: !input auto_lock_timer
+    from: active
+    to: idle
+    id: Timer Finished
+  - platform: time
+    at: !input daily_check_time
+    id: Daily Check
+
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger is none }}"
+        sequence:
+          - repeat:
+              for_each: "{{ notify_devices }}"
+              sequence:
+                - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+                  data:
+                    title: "Auto Lock Config Summary"
+                    message: >-
+                      Lock: {{ state_attr(lock, 'friendly_name') | default(lock) }} ({{ lock }})
+                      Timer: {{ auto_lock_timer }}
+                      Daily Check: {{ daily_check_enabled }}
+                      Daily Check Time: {{ daily_check_time }}
+                      Notify Devices: {{ notify_devices | map('device_attr', 'name') | list | join(', ') }}
+                      Lock State: {{ states(lock) }}
+      - conditions:
+          - condition: trigger
+            id:
+              - LCM Event
+        sequence:
+          - variables:
+              lock_state: "{{ trigger.event.data.state }}"
+              code_slot: "{{ trigger.event.data.code_slot }}"
+              code_slot_name: "{{ trigger.event.data.code_slot_name }}"
+              action_text: "{{ trigger.event.data.action_text }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ lock_state == 'locked' }}"
+                sequence:
+                  - if:
+                    - condition: template
+                      value_template: "{{ auto_lock_timer != 'timer.none' }}"
+                    then:
+                      - if:
+                          - condition: state
+                            entity_id: !input auto_lock_timer
+                            state: active
+                        then:
+                          - service: timer.cancel
+                            metadata: {}
+                            data: {}
+                            target:
+                              entity_id: !input auto_lock_timer
+              - conditions:
+                  - condition: template
+                    value_template: "{{ lock_state == 'unlocked' }}"
+                sequence:
+                  - if:
+                      - condition: template
+                        value_template: "{{ auto_lock_timer != 'timer.none' }}"
+                    then:
+                      - if:
+                          - condition: state
+                            entity_id: !input auto_lock_timer
+                            state: active
+                        then:
+                          - service: timer.cancel
+                            metadata: {}
+                            data: {}
+                            target:
+                              entity_id: !input auto_lock_timer
+                          - service: timer.start
+                            metadata: {}
+                            data: {}
+                            target:
+                              entity_id: !input auto_lock_timer
+                        else:
+                          - service: timer.start
+                            metadata: {}
+                            data: {}
+                            target:
+                              entity_id: !input auto_lock_timer
+      - conditions:
+          - condition: or
+            conditions:
+              - condition: and
+                conditions:
+                  - condition: trigger
+                    id:
+                      - Timer Finished
+                  - condition: template
+                    value_template: "{{ auto_lock_timer != 'timer.none' }}"
+              - condition: and
+                conditions:
+                  - condition: trigger
+                    id:
+                      - Daily Check
+                  - condition: template
+                    value_template: "{{ daily_check_enabled }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ states(lock) in ['unknown', 'unavailable'] }}"
+            then:
+              - repeat:
+                  for_each: "{{ notify_devices }}"
+                  sequence:
+                    - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+                      data:
+                        title: "Lock Unavailable"
+                        message: >-
+                          {{ state_attr(lock, 'friendly_name') | default(lock) }}
+                          is {{ states(lock) }} and cannot be locked.
+              - stop: "Lock is in an error state"
+          - if:
+              - condition: template
+                value_template: "{{ states(lock) != 'locked' }}"
+            then:
+              - service: lock.lock
+                metadata: {}
+                data: {}
+                target:
+                  entity_id: !input lock
+              - wait_template: "{{ is_state(lock, 'locked') }}"
+                timeout: "00:01:00"
+                continue_on_timeout: true
+              - if:
+                  - condition: template
+                    value_template: "{{ not wait.completed }}"
+                then:
+                  - repeat:
+                      for_each: "{{ notify_devices }}"
+                      sequence:
+                        - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+                          data:
+                            title: "Failed to Lock"
+                            message: >-
+                              {{ state_attr(lock, 'friendly_name') | default(lock) }}
+                              failed to lock after 60 seconds.
+
+mode: queued
+max: 5

@@ -1,5 +1,6 @@
 blueprint:
   name: Integrated Motion Night Light
+  author: Johan Henkens (https://github.com/jhenkens)
   homeassistant:
     min_version: "2023.3.0"
   description: >-
