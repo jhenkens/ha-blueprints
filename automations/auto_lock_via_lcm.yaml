@@ -71,7 +71,7 @@ action:
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ trigger is none }}"
+            value_template: "{{ trigger is none or trigger.id is not defined }}"
         sequence:
           - repeat:
               for_each: "{{ notify_devices }}"
