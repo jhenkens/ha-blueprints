@@ -13,6 +13,17 @@ blueprint:
           domain:
             - lock
           multiple: false
+    door_sensor:
+      name: Door Sensor
+      description: >-
+        Door sensor used to determine if the door is open or closed.
+        The timer will only start and locking will only be attempted when the door is closed.
+      selector:
+        entity:
+          domain:
+            - binary_sensor
+          device_class: door
+          multiple: false
     auto_lock_timer:
       name: Auto Lock Timer
       description: Auto Lock Timer
@@ -55,6 +66,7 @@ blueprint:
 
 variables:
   lock: !input lock
+  door_sensor: !input door_sensor
   auto_lock_timer: !input auto_lock_timer
   daily_check_enabled: !input daily_check_enabled
   daily_check_time: !input daily_check_time
@@ -74,6 +86,16 @@ trigger:
     from: unlocked
     to: locked
     id: Lock Locked
+  - platform: state
+    entity_id: !input door_sensor
+    from: "off"
+    to: "on"
+    id: Door Opened
+  - platform: state
+    entity_id: !input door_sensor
+    from: "on"
+    to: "off"
+    id: Door Closed
   - platform: state
     entity_id: !input auto_lock_timer
     from: active
@@ -97,6 +119,7 @@ action:
                     title: "{{ home_name }}"
                     message: >-
                       Lock: {{ state_attr(lock, 'friendly_name') | default(lock) }} ({{ lock }})
+                      Door: {{ state_attr(door_sensor, 'friendly_name') | default(door_sensor) }} ({{ states(door_sensor) }})
                       Timer: {{ auto_lock_timer }}
                       Daily Check: {{ daily_check_enabled }}
                       Daily Check Time: {{ daily_check_time }}
@@ -106,51 +129,49 @@ action:
           - condition: trigger
             id:
               - Lock Locked
+              - Door Opened
+          - condition: template
+            value_template: "{{ auto_lock_timer != 'timer.none' }}"
         sequence:
           - if:
-              - condition: template
-                value_template: "{{ auto_lock_timer != 'timer.none' }}"
+              - condition: state
+                entity_id: !input auto_lock_timer
+                state: active
             then:
-              - if:
-                  - condition: state
-                    entity_id: !input auto_lock_timer
-                    state: active
-                then:
-                  - service: timer.cancel
-                    metadata: {}
-                    data: {}
-                    target:
-                      entity_id: !input auto_lock_timer
+              - service: timer.cancel
+                metadata: {}
+                data: {}
+                target:
+                  entity_id: !input auto_lock_timer
       - conditions:
           - condition: trigger
             id:
               - Lock Unlocked
+              - Door Closed
+          - condition: template
+            value_template: "{{ auto_lock_timer != 'timer.none' }}"
+          - condition: state
+            entity_id: !input door_sensor
+            state: "off"
+          - condition: state
+            entity_id: !input lock
+            state: unlocked
         sequence:
           - if:
-              - condition: template
-                value_template: "{{ auto_lock_timer != 'timer.none' }}"
+              - condition: state
+                entity_id: !input auto_lock_timer
+                state: active
             then:
-              - if:
-                  - condition: state
-                    entity_id: !input auto_lock_timer
-                    state: active
-                then:
-                  - service: timer.cancel
-                    metadata: {}
-                    data: {}
-                    target:
-                      entity_id: !input auto_lock_timer
-                  - service: timer.start
-                    metadata: {}
-                    data: {}
-                    target:
-                      entity_id: !input auto_lock_timer
-                else:
-                  - service: timer.start
-                    metadata: {}
-                    data: {}
-                    target:
-                      entity_id: !input auto_lock_timer
+              - service: timer.cancel
+                metadata: {}
+                data: {}
+                target:
+                  entity_id: !input auto_lock_timer
+          - service: timer.start
+            metadata: {}
+            data: {}
+            target:
+              entity_id: !input auto_lock_timer
       - conditions:
           - condition: or
             conditions:
@@ -183,6 +204,21 @@ action:
                           {{ state_attr(lock, 'friendly_name') | default(lock) }}
                           is {{ states(lock) }} and cannot be locked.
               - stop: "Lock is in an error state"
+          - if:
+              - condition: state
+                entity_id: !input door_sensor
+                state: "on"
+            then:
+              - repeat:
+                  for_each: "{{ notify_devices }}"
+                  sequence:
+                    - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+                      data:
+                        title: "{{ home_name }}"
+                        message: >-
+                          {{ state_attr(lock, 'friendly_name') | default(lock) }}
+                          cannot be locked - door is open.
+              - stop: "Door is open"
           - if:
               - condition: template
                 value_template: "{{ states(lock) != 'locked' }}"
