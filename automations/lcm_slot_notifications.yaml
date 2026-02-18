@@ -45,6 +45,12 @@ variables:
   home_name: >-
     {{ state_attr('zone.home', 'friendly_name') if use_home_name else '' }}
   notify_on_lock: !input notify_on_lock
+  lcm_slot_numbers: >-
+    {% set slot_numbers = namespace(values=[]) %}
+    {% for device_id in lcm_slot_devices %}
+      {% set slot_numbers.values = slot_numbers.values + [device_attr(device_id, 'name').split()[-1]] %}
+    {% endfor %}
+    {{ slot_numbers.values }}
 
 trigger:
   - platform: event
@@ -55,6 +61,9 @@ condition:
     value_template: >-
       {{ trigger.event.data.lock_code_manager_config_entry_id in
          (lcm_slot_devices | map('device_attr', 'config_entries') | map('list') | sum(start=[]) | list) }}
+  - condition: template
+    value_template: >-
+      {{ trigger.event.data.code_slot | string in lcm_slot_numbers }}
   - condition: template
     value_template: >-
       {{ trigger.event.data.state != 'locked' or notify_on_lock }}
