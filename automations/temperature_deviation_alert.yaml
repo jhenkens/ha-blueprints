@@ -79,6 +79,8 @@ variables:
   friendly_name: "{{ state_attr(temperature_sensor,'friendly_name') }}"
   alert_high_temperature_1: !input alert_high_temperature_1
   helper_boolean: !input helper_boolean
+  notification_tag: '{{state_attr("zone.home", "friendly_name") | lower | replace(" ","_")}}_{{ this.entity_id.split(".")[1] }}'
+
 mode: restart
 max_exceeded: silent
 trigger:
@@ -130,9 +132,12 @@ action:
             - variables:
                 sensor_temp: '{{ states(temperature_sensor) }}'
             # Notification Actions
-            - service: notify.critical
-              data_template:
+            - action: notify.default
+              data:
                 message: '{{ friendly_name }} {{ sensor_temp }}F temperature alert! - {{now().strftime("%H:%M:%S on %m/%d/%y")}}'
+                data:
+                  tag: '{{ notification_tag }}'
+                  critical: true
             
             # Wait
             - wait_for_trigger:
@@ -157,7 +162,8 @@ action:
         entity_id: !input helper_boolean
       - variables:
           sensor_temp: '{{ states(temperature_sensor) }}'
-      - service: notify.default
-        data_template:
+      - action: notify.default
+        data:
+          tag: '{{ notification_tag }}'
           message: "{{ friendly_name }} temperature alert cleared ({{ sensor_temp }}F) - {{now().strftime('%H:%M:%S on %m/%d/%y')}}"
     
