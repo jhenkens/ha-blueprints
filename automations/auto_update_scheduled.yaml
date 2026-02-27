@@ -2,74 +2,110 @@ blueprint:
   name: Home Assistant Auto-update on a schedule base
   author: Johan Henkens (https://github.com/jhenkens)
   homeassistant:
-    min_version: '2024.8.0'
+    min_version: 2025.8.0
   description: >
     # Home Assistant Auto-update
 
     Update Home Assistant automatically when a new update is available.
 
-    Forked from Edward Firmo (https://github.com/edwardtfn)
+    ## v2025.12.1
 
-    v2024.9.30.0
+    ## Attention:
 
-    Attention:
+    - Home Assistant may restart automatically as part of the update process.
 
-    * Home Assistant may restart automatically as part of the update process.
+    - **Use under your own risk!** Please see the discussions on Home Assistant community around the risks involved on auto-updating the system.
 
-    * **Use under your own risk!** Please see the discussions on Home Assistant community around the risks involved on auto-updating the system.
+    - Ensure you have reliable backups before enabling automatic updates.
 
-    For questions and suggestions, please use [this thread in Home Assistant Community portal](https://community.home-assistant.io/t/scheduled-auto-update-for-home-assistant/459281).
+    - Auto-updates in production environments may lead to system instability.
+
+    - Updates may affect connected devices and integrations.
   domain: automation
   source_url: https://raw.githubusercontent.com/jhenkens/ha-blueprints/main/automations/auto_update_scheduled.yaml
   input:
     when_section:
-      name: When (Schedule, etc.)
+      name: When (Global Schedule)
       icon: mdi:calendar
-      description: Select when the updates should happen and when it should be skipped.
+      description: Select global schedule settings. These act as fallback for update types without custom schedules.
       collapsed: false
       input:
         schedule_entity:
-          name: Schedule entity
-          description: 'You can create an [Schedule](https://www.home-assistant.io/integrations/schedule) under [Settings > Devices & Services > Helpers](https://my.home-assistant.io/redirect/config_flow_start/?domain=schedule).
+          name: Global Schedule entity (optional)
+          description: >
+            You can create a [Schedule](https://www.home-assistant.io/integrations/schedule) under
+            [Settings > Devices & Services > Helpers](https://my.home-assistant.io/redirect/config_flow_start/?domain=schedule).
 
-            Note => The schedule windows will define when an update will start. It is possible that a backup, an update or a restart process finishes after the schedule window, but new updates won''t stars outside the schedule windows.'
+            Note => The schedule windows will define when an update will start.
+            It is possible that a backup, an update or a restart process finishes after the schedule window,
+            but new updates won't start outside the schedule windows.
+
+            This global schedule is optional if all update types have custom schedules enabled.
           default: []
-          selector:
+          selector: &schedule_entity-selector
             entity:
               multiple: false
               domain: schedule
 
-        schedule_monthday:
-          name: Earliest day in the month to update Home Assistant (optional)
+        schedule_monthday_earliest:
+          name: Global earliest day in the month
           description: >
             Usually a new major version of Home Assistant is available on the begining of every month.
-            Some people consider those releases as not stable enough and prefer to avoid those versions, not updating the system until the mid of the month (day 15).
+            Some people consider those releases as not stable enough and prefer to avoid those versions,
+            not updating the system until the mid of the month (day 15).
 
-            Note => If you select a day higher than 28 the updates won't run every month.
-          default: 1
-          selector:
+            Notes:
+              - If you select a day higher than 28 the updates won't run every month.
+              - Selecting `0` will disable the check.
+          default: 0
+          selector: &day_number-selector
             number:
-              min: 1
+              min: 0
               max: 31
               step: 1
               mode: slider
 
-        update_out_of_schedule:
-          name: Out of schedule entities (optional)
-          description:
-            You can select update entities which will be updated as soon an update is detected, even if outside the schedule windows.
-          default: []
+        schedule_monthday_outside_window_mode:
+          name: Global outside day of month window fallback mode
+          description: >
+            Define the behavior when current day is outside the configured day of month window.
+            
+            - Ignore if before: Don't run any updates outside the window
+            - Only patches if before: Only run patch updates outside the window
+          default: "ignore"
+          selector: &month_window_fallback-selector
+            select:
+              options:
+                - label: Ignore if before
+                  value: "ignore"
+                - label: Only patches if before
+                  value: "patches"
+
+        schedule_monthday_last:
+          name: Global latest day in the month
+          description: >
+            Specify the latest day in month, on which this update can run.
+
+            Note:
+              - Selecting `0` or a date lower than the "Earliest Day" will disable the check.
+          default: 0
           selector:
-            entity:
-              multiple: true
-              domain:
-                - update
+            number:
+              min: 0
+              max: 31
+              step: 1
+              mode: slider
 
         pause_entities:
-          name: Pause update entities (optional)
-          description: 'You can select one or more entities to pause the updates. If any of the selected entities is "On" or "True" the system won''t be updated on the schedule time.
+          name: Global pause update entities
+          description: |
+            `Optional`
 
-            You can use this to hold your updates when you have a party at home, or when you are on vacations and don''t want to be concerned about updates on Home Assistant.'
+            You can select one or more entities to pause the updates globally.
+            If any of the selected entities is "On" or "True" the system won't be updated on the schedule time.
+
+            You can use this to hold your updates when you have a party at home,
+            or when you are on vacations and don't want to be concerned about updates on Home Assistant.
           default: []
           selector:
             entity:
@@ -78,6 +114,144 @@ blueprint:
                 - input_boolean
                 - binary_sensor
                 - switch
+
+    when_section_core:
+      name: When (Core & OS)
+      icon: mdi:home-assistant
+      description: Core and OS specific schedule settings. Enable to override global settings.
+      collapsed: true
+      input:
+        use_custom_schedule_core:
+          name: Use custom schedule for Core & OS
+          description: Enable to use Core-specific schedule instead of global schedule
+          default: false
+          selector:
+            boolean: {}
+
+        schedule_entity_core:
+          name: Core & OS Schedule entity
+          description: Schedule for Core & OS updates (only used if custom schedule enabled)
+          default: []
+          selector: *schedule_entity-selector
+
+        schedule_monthday_earliest_core:
+          name: Earliest day (Core & OS)
+          description: Earliest day in month for Core & OS updates (0 = disabled)
+          default: 0
+          selector: *day_number-selector
+
+        schedule_monthday_outside_window_mode_core:
+          name: Outside day of month window fallback mode (Core & OS)
+          description: >
+            Define the behavior when current day is outside the configured day of month window.
+            
+            - Ignore if before: Don't run any Core & OS updates outside the window
+            - Only patches if before: Only run patch updates outside the window
+          default: "ignore"
+          selector: *month_window_fallback-selector
+
+        schedule_monthday_last_core:
+          name: Latest day (Core & OS)
+          description: Latest day in month for Core & OS updates (0 = disabled)
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 31
+              step: 1
+              mode: slider
+
+    when_section_firmware:
+      name: When (Firmware)
+      icon: mdi:chip
+      description: Firmware specific schedule settings. Enable to override global settings.
+      collapsed: true
+      input:
+        use_custom_schedule_firmware:
+          name: Use custom schedule for Firmware
+          description: Enable to use Firmware-specific schedule instead of global schedule
+          default: false
+          selector:
+            boolean: {}
+
+        schedule_entity_firmware:
+          name: Firmware Schedule entity
+          description: Schedule for Firmware updates (only used if custom schedule enabled)
+          default: []
+          selector: *schedule_entity-selector
+
+        schedule_monthday_earliest_firmware:
+          name: Earliest day (Firmware)
+          description: Earliest day in month for Firmware updates (0 = disabled)
+          default: 0
+          selector: *day_number-selector
+
+        schedule_monthday_outside_window_mode_firmware:
+          name: Outside day of month window fallback mode (Firmware)
+          description: >
+            Define the behavior when current day is outside the configured day of month window.
+            
+            - Ignore if before: Don't run any Firmware updates outside the window
+            - Only patches if before: Only run patch updates outside the window
+          default: "ignore"
+          selector: *month_window_fallback-selector
+
+        schedule_monthday_last_firmware:
+          name: Latest day (Firmware)
+          description: Latest day in month for Firmware updates (0 = disabled)
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 31
+              step: 1
+              mode: slider
+
+    when_section_general:
+      name: When (General)
+      icon: mdi:puzzle
+      description: General updates specific schedule settings. Enable to override global settings.
+      collapsed: true
+      input:
+        use_custom_schedule_general:
+          name: Use custom schedule for General updates
+          description: Enable to use General-specific schedule instead of global schedule
+          default: false
+          selector:
+            boolean: {}
+
+        schedule_entity_general:
+          name: General Schedule entity
+          description: Schedule for General updates (only used if custom schedule enabled)
+          default: []
+          selector: *schedule_entity-selector
+
+        schedule_monthday_earliest_general:
+          name: Earliest day (General)
+          description: Earliest day in month for General updates (0 = disabled)
+          default: 0
+          selector: *day_number-selector
+
+        schedule_monthday_outside_window_mode_general:
+          name: Outside day of month window fallback mode (General)
+          description: >
+            Define the behavior when current day is outside the configured day of month window.
+            
+            - Ignore if before: Don't run any General updates outside the window
+            - Only patches if before: Only run patch updates outside the window
+          default: "ignore"
+          selector: *month_window_fallback-selector
+
+        schedule_monthday_last_general:
+          name: Latest day (General)
+          description: Latest day in month for General updates (0 = disabled)
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 31
+              step: 1
+              mode: slider
 
     what_section:
       name: What (optional)
@@ -144,17 +318,108 @@ blueprint:
           default: "all"
           selector: *update_mode-selector
 
-        update_exclusions:
-          name: Exclusions (optional)
-          description: 'Select the items that should NOT be included on the automated updates.
-
-
-            => Use this if you want to keep some add-on on an specific version and avoid auto-updates to it.'
-          default: []
+        update_inclusion_mode:
+          name: Entity Inclusion Mode
+          description: >-
+            Please select the entity inclusion mode.
+            * All:
+              Just build the update entity list from all available update.* entities, which are in state 'on'.
+            * Specified/Specified-Single:
+              Build the update entity list from the specified entity list, filtering for entities in 'on' state.
+              - Specified: Updates all matching entities
+              - Specified-Single: Updates only the first matching entity
+            * Searchfilter:
+              This works as a wildcard filter.
+              Examples:
+                'update.zigbee2mqtt_'   => all update entities from zigbee2mqtt addon
+                'update.esphome_'       => all update entities from esphome devices if their names start with 'esphome_'
+            * Searchfilter-Single:
+              Just like the searchfilter, but only the first entity. (Sorted alphabetically)
+          default: "all"
           selector:
+            select:
+              multiple: false
+              options:
+                - label: All
+                  value: "all"
+                - label: Specified
+                  value: "specified"
+                - label: Specified-Single
+                  value: "specified-single"
+                - label: Searchfilter
+                  value: "searchfilter"
+                - label: Searchfilter-Single
+                  value: "searchfilter-single"
+
+        update_inclusion_entity_list:
+          name: Entity Inclusion List
+          description: >-
+            => Important: This entity list will only be used when the Update Inclusion mode is set to "Specified" or "Specified-Single".
+            Select the items which should be updated.
+          default: []
+          selector: &update_entities-selector
             entity:
               multiple: true
               domain: update
+
+        update_inclusion_entity_searchfilter:
+          name: Entity Inclusion Searchfilter
+          description: >-
+            => Important: This searchfilter will only be used when the Update Inclusion mode is set to "Searchfilter" or "Searchfilter-Single".
+            This defines the Searchfilter for finding the right update entities.
+            This enables wildcard-like searching for a group of entities, aka "all zigbee entities" or "everything from Sonoff" etc.
+          default: ""
+          selector:
+            text:
+              multiline: false
+
+        update_exclusions:
+          name: Exclusions
+          description: |
+            `Optional`
+
+            Select the items that should NOT be included on the automated updates.
+
+            => Use this if you want to keep some add-on on an specific version and avoid auto-updates to it.
+          default: []
+          selector: *update_entities-selector
+
+        auto_skip_updates:
+          name: Auto-skip updates as they become available
+          description: |
+            When enabled, new updates will be automatically skipped (hidden from dashboard) as soon as they appear.
+            The skipped updates can later be installed during scheduled update windows if "Update skipped updates" is enabled.
+          default: false
+          selector:
+            boolean: {}
+
+        auto_skip_update_types:
+          name: Which update types to auto-skip
+          description: Select which types of updates should be automatically skipped when they appear
+          default: []
+          selector:
+            select:
+              multiple: true
+              options:
+                - label: Core & OS Updates
+                  value: core_os
+                - label: Firmware Updates
+                  value: firmware
+                - label: General Updates (Add-ons, HACS)
+                  value: general
+
+        update_skipped_updates:
+          name: Update previously skipped updates
+          description: |
+            When enabled, updates that were previously skipped (using update.skip or auto-skip)
+            will be installed during scheduled update windows if:
+            - The skipped version matches the current latest version
+            - The installed version is different from the latest version
+
+            Note: The automation calls update.install directly on skipped updates without unskipping them first.
+          default: false
+          selector:
+            boolean: {}
 
     backup_section:
       name: Backup (optional)
@@ -162,28 +427,61 @@ blueprint:
       description: Select the back-up options
       collapsed: true
       input:
+        run_during_backup:
+          name: Backup state sensor
+          description: |
+            `Optional`
+
+            Is a sensor is selected, this automation will run only when that sensor reports backup state as `idle`.
+            No update will be executed while the backup state sensor is in any other state or "unavailable".
+
+            If no sensor is selected, this automation won't pause due to a backup in progress.
+          default: []
+          selector:
+            entity:
+              multiple: false
+              filter:
+                domain: sensor
+                device_class: enum
+                integration: backup
+
         backup_bool:
           name: Create a full backup before start the updates?
           default: true
           selector:
             boolean:
-        backup_wait_time:
-          name: Backup wait time
-          description:
-            Select how long the system should wait for the backup to be completed after it is triggered.
 
-            Please make sure the schedule covers the waiting time, otherwise the update will never be triggered after a backup.
+        last_backup_timestamp_entity:
+          name: Last successful automatic backup sensor
+          description: |
+            `Optional`
+          default: []
+          selector:
+            entity:
+              multiple: false
+              filter:
+                domain: sensor
+                device_class: timestamp
+                integration: backup
+        backup_timeout:
+          name: Backup Timeout
+          description: >-
+            Specify how much time the automation waits for the backup process.
+            We can't check whether the backup was successful.
+            Per default we wait 1 hour to finish the backup.
           default: 60
           selector:
             number:
-              min: 0
-              max: 3600
-              step: 10
               mode: box
+              min: 1
+              max: 180
               unit_of_measurement: minutes
+
         max_backup_age:
-          name: Maximum backup age (or zero, to disable) (optional)
-          description:
+          name: Maximum backup age (or zero, to disable)
+          description: |
+            `Optional`
+
             This requires the [Google Drive Backup](https://github.com/sabeechen/hassio-google-drive-backup)
             addon to be installed and configured to automatically backup, and provide
             a sensor with the backup states. The setting only checks for the age of
@@ -198,6 +496,16 @@ blueprint:
             duration:
               enable_day: true
 
+        backup_location:
+          name: Backup Location
+          description: |
+            You can create a new backup location under [Settings > System > Storage](https://my.home-assistant.io/redirect/storage/).
+
+            Specify where to store the backup for this autoupdate process.
+          default: "/backup"
+          selector:
+            backup_location:
+
     actions_section:
       name: Actions (optional)
       icon: mdi:shoe-print
@@ -205,53 +513,155 @@ blueprint:
       collapsed: true
       input:
         actions_pre_update:
-          name: Pre-update actions (optional)
-          description: 'Actions to execute before the backup or any update starts.
+          name: Pre-update actions
+          description: |
+            `Optional`
+
+            Actions to execute before the backup or any update starts.
 
             You can use this to send notifications, turn on/off devices or activate scenes before starting the updates.
 
 
-            Note => Please be aware that all actions will run right before the update process, which can happens over-night. Take this in account when selecting your actions.
+            Note => Please be aware that all actions will run right before the update process,
+            which can happens over-night. Take this in account when selecting your actions.
 
-            Note => The variable "\{\{ updates_list \}\}" is available for your actions and contains the list of pending updates.'
+            Note => Some usefull variables available for your actions:
+              - "`\{\{ updates_list \}\}`" - contains the list of updates when the automation started.
+              - "`\{\{ updates_pending \}\}`" - contains the list of updates remaining to be updated.
           default: []
           selector:
             action: {}
 
         actions_pre_restart:
-          name: Pre-restart actions (optional)
-          description: 'Actions to execute before the automation requests a restart.
+          name: Pre-restart actions
+          description: |
+            `Optional`
 
-            You can use this to send notifications, turn on/off devices or stopping automations before restarting Home Assistant.
+            Actions to execute before the automation requests a restart.
+
+            You can use this to send notifications,
+            turn on/off devices or stopping automations before restarting Home Assistant.
 
 
-            Note => Please be aware that all actions will run right before the restart process, which can happens over-night. Take this in account when selecting your actions.
+            Note => Please be aware that all actions will run right before the restart process,
+            which can happens over-night. Take this in account when selecting your actions.
 
-            Note => Note all the restarts will be controlled by this automation, like when a Core update is installed. These actions might not be executed in those cases.
+            Note => Not all the restarts will be controlled by this automation,
+            like when a Core update is installed. These actions might not be executed in those cases.
 
-            Note => The variable "\{\{ updates_list \}\}" is available for your actions and contains the list of pending updates.'
+            Note => Some usefull variables available for your actions:
+              - "`\{\{ updates_list \}\}`" - contains the list of updates when the automation started.
+              - "`\{\{ updates_pending \}\}`" - contains the list of updates remaining to be updated.
           default: []
           selector:
             action: {}
 
-        actions_pos_update:
-          name: Post-update actions (optional)
-          description: >
+        actions_post_update:
+          name: Post-update actions
+          description: |
+            `Optional`
+
             Actions to execute AFTER the update process finishes.
 
             You can use this to send notifications, turn on/off devices or activate scenes after applying  the updates.
 
 
-            Note => Please be aware that all actions will run right after the update process, which can happens over-night.
+            Note => Please be aware that all actions will run right after the update process,
+            which can happens over-night.
             Take this in account when selecting your actions.
 
-            Note => The variable "\{\{ updates_list \}\}" is available for your actions and contains the list of pending updates.
+            Note => Some usefull variables available for your actions:
+              - "`\{\{ updates_list \}\}`" - contains the list of updates when the automation started.
+              - "`\{\{ updates_pending \}\}`" - contains the list of updates remaining to be updated.
 
-            **IMPORTANT** => Some updates will automatically restart Home Assistant, causing the automation to interrupt before finishing, preventing the pos-updates actions to be executed.
-            If you have critical actions to run after an update, consider including also in another automation based on Home Assistant start.
+            **IMPORTANT** => Some updates will automatically restart Home Assistant,
+            causing the automation to interrupt before finishing, preventing the pos-updates actions to be executed.
+            If you have critical actions to run after an update,
+            consider including also in another automation based on Home Assistant start.
           default: []
           selector:
             action: {}
+
+    notification_section:
+      name: Notifications (optional)
+      icon: mdi:bell
+      description: Here you can setup optional notifications. Select a notify entity to enable notifications.
+      collapsed: true
+      input:
+        notification_entity:
+          name: Notify entity
+          description: >
+            Select a notify entity to send messages to.
+
+            This can be a Telegram notify entity, mobile app, or any other notify entity.
+
+            Note: For Telegram entities, special characters will be automatically escaped.
+
+            Leave empty to disable notifications.
+          default: []
+          selector:
+            entity:
+              multiple: false
+              domain: notify
+
+        notification_message_title:
+          name: Notification title
+          description: |
+            `Optional`
+
+            Please select a title to be used on each notification message.
+
+            You can type a custom text.
+          default:
+            - friendly_name
+          selector:
+            select:
+              custom_value: true
+              multiple: false
+              options:
+                - label: Automation's friendly name
+                  value: friendly_name
+                - label: Automation's entity Id
+                  value: entity_id
+                - label: Blank (no title)
+                  value: blank
+
+        notification_select_notifications:
+          name: Select what to notify
+          description: |
+            Select which steps should trigger notifications.
+          default:
+            - starting
+            - list_of_updates
+            - pre_update_actions
+            - backup
+            - update_progress
+            - remaining_updates
+            - restart
+            - post_update_actions
+            - done
+          selector:
+            select:
+              multiple: true
+              options:
+                - label: (Re-)Starting message
+                  value: starting
+                - label: List of updates
+                  value: list_of_updates
+                - label: Pre-update actions
+                  value: pre_update_actions
+                - label: Backup
+                  value: backup
+                - label: Update progress
+                  value: update_progress
+                - label: Remaining updates
+                  value: remaining_updates
+                - label: Restart
+                  value: restart
+                - label: Post-update actions
+                  value: post_update_actions
+                - label: Done message
+                  value: done
 
     general_settings:
       name: General settings (optional)
@@ -261,7 +671,10 @@ blueprint:
       input:
         restart_type:
           name: Force Home Assistant to restart if required by any update?
-          description: This won't affect updates where a restart is automatic, but for updates requiring a manual restart (quite common on HACS) this blueprint can automatically force a restart by the end of the updates.
+          description: >
+            This won't affect updates where a restart is automatic,
+            but for updates requiring a manual restart (quite common on HACS)
+            this blueprint can automatically force a restart by the end of the updates.
           default: "no-restart"
           selector:
             select:
@@ -273,35 +686,114 @@ blueprint:
                   value: "core"
                 - label: "Restart Home Assistant host"
                   value: "host"
+
         verbose_logging_bool:
-          name: Log addon progress with verbosity to the logbook? (optional)
+          name: Log addon progress with verbosity to the logbook?
+          description: |
+            `Optional`
+
+            When enabled, this automation will register each step on the logbook.
+
+            This can be usefull for troubleshooting, but at normal conditions, it won't add much value.
           default: false
           selector:
             boolean: {}
+
+        update_process_started_entity:
+          name: '"Update Process Started" Toggle Entity'
+          description: |
+            `Optional`
+
+            You can create a [Toggle Helper](https://www.home-assistant.io/integrations/input_boolean) under
+            [Settings > Devices & Services > Helpers](https://my.home-assistant.io/redirect/config_flow_start/?domain=input_boolean).
+
+            This entity will be used to determine if we still have to do a backup
+            on automation start - so it is for inner workings of this automation.
+
+            This saves you from getting multiple backups in the same update window.
+          default: []
+          selector:
+            entity:
+              multiple: false
+              domain: input_boolean
+
+        update_timeout:
+          name: Update Timeout
+          description: |
+            Maximum time to wait for each update to complete.
+
+            This protects the automation of waiting forever for an update that fails.
+
+            Usually updates don't take that very long,
+            so feel free to ajust this time to something that fits better your environment.
+
+            The default is 1200 seconds (20 minutes).
+            You can select any value between 10 seconds and 7200 seconds (2 hours).
+
+            If an update times out:
+            - The automation will log an error message
+            - The automation will continue with the next update
+            - The timed-out update may still complete in the background
+          default: 1200
+          selector:
+            number:
+              min: 10
+              max: 7200
+              step: 10
+              unit_of_measurement: seconds
+              mode: box
 
 mode: single
 max_exceeded: warning
 
 trigger_variables:
+  input_pause_entities: !input pause_entities
   input_update_exclusions: !input update_exclusions
-  input_update_out_of_schedule: !input update_out_of_schedule
-  updates_available: >
-    {% set updates_available_obj =
-        states.update
-        | default([])
-        | selectattr("state", "eq", "on")
-        | rejectattr("entity_id", "in", input_update_exclusions)
-    %}
-    {{
-      updates_available_obj | map(attributes="entity_id") | list
-      if (updates_available_obj | list | count | int(0) > 0)
-      else []
-    }}
+  schedule_entity: !input schedule_entity
+  schedule_monthday_earliest: !input schedule_monthday_earliest
+  schedule_monthday_outside_window_mode: !input schedule_monthday_outside_window_mode
+  schedule_monthday_last: !input schedule_monthday_last
+  input_schedule_monthday_earliest: '{{ schedule_monthday_earliest | int(0) }}'
+  input_schedule_monthday_last: '{{ schedule_monthday_last | int(0) }}'
+  input_update_inclusion_entity_list: !input update_inclusion_entity_list
+  input_update_inclusion_entity_searchfilter: !input update_inclusion_entity_searchfilter
+  input_update_process_started_entity: !input update_process_started_entity
+  # Auto-skip settings
+  auto_skip_updates: !input auto_skip_updates
+  auto_skip_update_types: !input auto_skip_update_types
+  update_skipped_updates: !input update_skipped_updates
+  # Core & OS schedule settings
+  use_custom_schedule_core: !input use_custom_schedule_core
+  schedule_entity_core: !input schedule_entity_core
+  schedule_monthday_earliest_core: !input schedule_monthday_earliest_core
+  schedule_monthday_outside_window_mode_core: !input schedule_monthday_outside_window_mode_core
+  schedule_monthday_last_core: !input schedule_monthday_last_core
+  # Firmware schedule settings
+  use_custom_schedule_firmware: !input use_custom_schedule_firmware
+  schedule_entity_firmware: !input schedule_entity_firmware
+  schedule_monthday_earliest_firmware: !input schedule_monthday_earliest_firmware
+  schedule_monthday_outside_window_mode_firmware: !input schedule_monthday_outside_window_mode_firmware
+  schedule_monthday_last_firmware: !input schedule_monthday_last_firmware
+  # General schedule settings
+  use_custom_schedule_general: !input use_custom_schedule_general
+  schedule_entity_general: !input schedule_entity_general
+  schedule_monthday_earliest_general: !input schedule_monthday_earliest_general
+  schedule_monthday_outside_window_mode_general: !input schedule_monthday_outside_window_mode_general
+  schedule_monthday_last_general: !input schedule_monthday_last_general
 
 trigger:
-  - id: HA Schedule based
+  - id: Global Schedule Changed
     platform: state
     entity_id: !input schedule_entity
+  - id: Core Schedule Changed
+    platform: state
+    entity_id: !input schedule_entity_core
+  - id: Firmware Schedule Changed
+    platform: state
+    entity_id: !input schedule_entity_firmware
+  - id: General Schedule Changed
+    platform: state
+    entity_id: !input schedule_entity_general
   - id: HA Start
     platform: homeassistant
     event: start
@@ -315,9 +807,6 @@ trigger:
         | rejectattr("entity_id", "in", input_update_exclusions)
         | list | count | int(0) > 0
       }}
-  - id: New day
-    platform: time
-    at: "00:00:01"
   - id: Automations reloaded
     platform: event
     event_type: automation_reloaded
@@ -325,745 +814,770 @@ trigger:
     platform: state
     entity_id: !input pause_entities
 
-condition:
-  - condition: template
-    value_template: >-
-      {{
-        states.update
-        | default([])
-        | selectattr("state", "eq", "on")
-        | rejectattr("entity_id", "in", input_update_exclusions)
-        | list | count | int(0) > 0
-      }}
-
-  - condition: or
-    conditions:
-      - condition: and
-        conditions:
-          - condition: template
-            value_template: >
-              {{ now().day >= ((input_schedule_monthday) | int(0)) }}
-          - condition: state
-            entity_id: !input schedule_entity
-            state: "on"
-      - condition: template
-        value_template: >
-          {% set ns = namespace(found=false) %}
-          {% for item in input_update_out_of_schedule %}
-            {% if item in updates_available %}
-              {% set ns.found = true %}
-              {% break %}
-            {% endif %}
-          {% endfor %}
-          {{ ns.found }}
-
-  - condition: or
-    conditions:
-      - "{{ input_pause_entities | default([]) | list | count | int(0) < 1 }}"
-      - condition: state
-        entity_id: !input pause_entities
-        state: 'off'
-
 variables:
-  input_schedule_monthday: !input schedule_monthday
-  input_pause_entities: !input pause_entities
   temp_input_update_exclusions: !input update_exclusions
   input_verbose_logging_bool: !input verbose_logging_bool
-  input_backup_bool: !input backup_bool
-  input_restart_type: !input restart_type
-
-  temp_max_backup_age: !input max_backup_age
-  input_max_backup_age_seconds: >
-    {{
-      timedelta(
-        days=temp_max_backup_age.days,
-        hours=temp_max_backup_age.hours,
-        minutes=temp_max_backup_age.minutes,
-        seconds=temp_max_backup_age.seconds
-      ).total_seconds()
-    }}
-
   input_core_os_update_mode: !input core_os_update_mode
   input_firmware_update_mode: !input firmware_update_mode
   input_general_update_mode: !input general_update_mode
-  updates_list: []
-  pending_updates_list: []
+  input_update_inclusion_mode: !input update_inclusion_mode
+  input_notification_entity: !input notification_entity
+  input_notification_select_notifications: !input notification_select_notifications
+  input_notification_message_title: !input notification_message_title
+  core_update_entity: >-
+    {% for u in integration_entities('hassio') | select('search', '^update[.]')
+      if (device_attr(u, 'identifiers') | first | default(""))[1] == 'core' %}
+        {{ u }}
+    {% endfor %}
+  os_update_entity: >-
+    {% for u in integration_entities('hassio') | select('search', '^update[.]')
+      if (device_attr(u, 'identifiers') | first | default(""))[1] == 'OS' %}
+        {{ u }}
+    {% endfor %}
+  supervisor_update_entity: >-
+    {% for u in integration_entities('hassio') | select('search', '^update[.]')
+      if (device_attr(u, 'identifiers') | first | default(""))[1] == 'supervisor' %}
+        {{ u }}
+    {% endfor %}
+  is_resume_after_restart: >-
+    {{
+      input_update_process_started_entity | default([]) | count == 1 and
+      is_state(input_update_process_started_entity | first | default(""), "on")
+    }}
+  friendly_name: >-
+    {% set friendly_name_tmp = state_attr(this.entity_id, "friendly_name") | default("") %}
+    {{
+      friendly_name_tmp
+      if friendly_name_tmp is string and friendly_name_tmp | length > 0
+      else "Auto-update"
+    }}
+  is_telegram_notify: >-
+    {{
+      input_notification_entity is string and
+      input_notification_entity | length > 0 and
+      'telegram' in input_notification_entity.lower()
+    }}
+  notification_title: >-
+    {% if (input_notification_message_title == "friendly_name") %}
+      {{ friendly_name }}
+    {% elif (input_notification_message_title == "entity_id") %}
+      {{ this.entity_id }}
+    {% elif (input_notification_message_title != "blank" and
+              input_notification_message_title is string and
+              input_notification_message_title | length > 0) %}
+      {{ input_notification_message_title }}
+    {% else %}
+      {{ "" }}
+    {% endif %}
+  # Effective schedule variables for Core & OS
+  schedule_entity: !input schedule_entity
+  effective_schedule_core: >-
+    {% if use_custom_schedule_core and schedule_entity_core | length > 0 %}
+      {{ schedule_entity_core }}
+    {% elif schedule_entity | length > 0 %}
+      {{ schedule_entity }}
+    {% else %}
+      none
+    {% endif %}
+  effective_monthday_earliest_core: >-
+    {{ schedule_monthday_earliest_core | int(0) if use_custom_schedule_core else schedule_monthday_earliest | int(0) }}
+  effective_monthday_outside_window_mode_core: >-
+    {{ schedule_monthday_outside_window_mode_core if use_custom_schedule_core else schedule_monthday_outside_window_mode }}
+  effective_monthday_last_core: >-
+    {{ schedule_monthday_last_core | int(0) if use_custom_schedule_core else schedule_monthday_last | int(0) }}
+  # Effective schedule variables for Firmware
+  effective_schedule_firmware: >-
+    {% if use_custom_schedule_firmware and schedule_entity_firmware | length > 0 %}
+      {{ schedule_entity_firmware }}
+    {% elif schedule_entity | length > 0 %}
+      {{ schedule_entity }}
+    {% else %}
+      none
+    {% endif %}
+  effective_monthday_earliest_firmware: >-
+    {{ schedule_monthday_earliest_firmware | int(0) if use_custom_schedule_firmware else schedule_monthday_earliest | int(0) }}
+  effective_monthday_outside_window_mode_firmware: >-
+    {{ schedule_monthday_outside_window_mode_firmware if use_custom_schedule_firmware else schedule_monthday_outside_window_mode }}
+  effective_monthday_last_firmware: >-
+    {{ schedule_monthday_last_firmware | int(0) if use_custom_schedule_firmware else schedule_monthday_last | int(0) }}
+  # Effective schedule variables for General
+  effective_schedule_general: >-
+    {% if use_custom_schedule_general and schedule_entity_general | length > 0 %}
+      {{ schedule_entity_general }}
+    {% elif schedule_entity | length > 0 %}
+      {{ schedule_entity }}
+    {% else %}
+      none
+    {% endif %}
+  effective_monthday_earliest_general: >-
+    {{ schedule_monthday_earliest_general | int(0) if use_custom_schedule_general else schedule_monthday_earliest | int(0) }}
+  effective_monthday_outside_window_mode_general: >-
+    {{ schedule_monthday_outside_window_mode_general if use_custom_schedule_general else schedule_monthday_outside_window_mode }}
+  effective_monthday_last_general: >-
+    {{ schedule_monthday_last_general | int(0) if use_custom_schedule_general else schedule_monthday_last | int(0) }}
+  should_include_skipped: '{{ update_skipped_updates | default(false) }}'
+  paused_due_to_pause_entities: >-
+    {{ input_pause_entities | default([]) | select('is_state', 'on') | list | count > 0 }}
+
+  all_update_entities: &recalc_all_update_entities >-
+    {% if paused_due_to_pause_entities %}
+      []
+    {% else %}
+      {{ states.update | default([]) | rejectattr('entity_id', 'in', input_update_exclusions) | map(attribute='entity_id') | list }}
+    {% endif %}
+  all_core_os_update_entities: &recalc_all_core_os_update_entities >-
+    {{ all_update_entities | select('in', [core_update_entity, os_update_entity, supervisor_update_entity]) | list }}
+  all_firmware_update_entities: &recalc_all_firmware_update_entities >-
+    {{ all_update_entities | select('is_state_attr', 'device_class', 'firmware') | list }}
+  all_general_update_entities: &recalc_all_general_update_entities >-
+    {{
+      all_update_entities
+      | reject('in', all_core_os_update_entities)
+      | reject('in', all_firmware_update_entities)
+      | list
+    }}
+
+  filtered_general_update_entites: &recalc_filtered_general_update_entites >-
+    {% set filtered = all_general_update_entities %}
+    {% if input_update_inclusion_mode in ["specified", "specified-single"] %}
+      {% set filtered = filtered | select('in', input_update_inclusion_entity_list) | list %}
+    {% elif input_update_inclusion_mode in ["searchfilter", "searchfilter-single"] %}
+      {% set filtered = filtered | select('match', input_update_inclusion_entity_searchfilter) | list %}
+    {% endif %}
+    {% if input_update_inclusion_mode in ["specified-single", "searchfilter-single"] %}
+      {{ [filtered | first | default("")] }}
+    {% else %}
+      {{ filtered }}
+    {% endif %}
+
+  all_update_entities_with_changes: &recalc_all_update_entities_with_changes >-
+    {% set ns = namespace(entities=[]) %}
+    {% for e_id in all_update_entities %}
+      {% if is_state(e_id, 'on') %}
+        {% set ns.entities = ns.entities + [e_id] %}
+      {% elif should_include_skipped and is_state(e_id, 'off') and
+              state_attr(e_id, "installed_version") != state_attr(e_id, "latest_version") and
+              state_attr(e_id, "skipped_version") == state_attr(e_id, "latest_version") and
+              state_attr(e_id, "installed_version") != "" and
+              state_attr(e_id, "installed_version") != none and
+              state_attr(e_id, "latest_version") != "" and
+              state_attr(e_id, "latest_version") != none %}
+        {% set ns.entities = ns.entities + [e_id] %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.entities }}
+
+  all_core_os_update_entities_with_changes: &recalc_all_core_os_update_entities_with_changes >-
+    {{ all_core_os_update_entities | select('in', all_update_entities_with_changes) | list }}
+
+  all_firmware_update_entities_with_changes: &recalc_all_firmware_update_entities_with_changes >-
+    {{ all_firmware_update_entities | select('in', all_update_entities_with_changes) | list }}
+
+  filtered_general_update_entites_with_changes: &recalc_filtered_general_update_entites_with_changes >-
+    {{ filtered_general_update_entites | select('in', all_update_entities_with_changes) | list }}
+
+  # Calculate allowed updates based on schedule and update mode
+  updates_pending: &recalc_updates_pending >-
+    {% set changes_lists = [
+      [filtered_general_update_entites_with_changes, input_general_update_mode, effective_schedule_general, effective_monthday_earliest_general, effective_monthday_last_general, effective_monthday_outside_window_mode_general],
+      [all_firmware_update_entities_with_changes, input_firmware_update_mode, effective_schedule_firmware, effective_monthday_earliest_firmware, effective_monthday_last_firmware, effective_monthday_outside_window_mode_firmware],
+      [all_core_os_update_entities_with_changes, input_core_os_update_mode, effective_schedule_core, effective_monthday_earliest_core, effective_monthday_last_core, effective_monthday_outside_window_mode_core]
+    ] %}
+    {% set ns = namespace(allowed = []) %}
+    {% for changes_list in changes_lists %}
+      {% set entities_with_changes = changes_list[0] %}
+      {% set update_mode = changes_list[1] %}
+      {% set schedule_entity = changes_list[2] %}
+      {% set monthday_earliest = changes_list[3] %}
+      {% set monthday_last = changes_list[4] %}
+      {% set outside_window_mode = changes_list[5] %}
+      {% if (now().day < monthday_earliest and monthday_earliest != 0) or
+            (now().day > monthday_last and monthday_last != 0) %}
+          {% set update_mode = outside_window_mode %}
+      {% endif %}
+      {% if schedule_entity == "none" or not is_state(schedule_entity, "on") %}
+        {% set update_mode = "ignore" %}
+      {% endif %}
+      {% if update_mode == 'all' %}
+        {% set ns.allowed = ns.allowed + entities_with_changes %}
+      {% elif update_mode == 'patches' %}
+        {% for entity in expand(entities_with_changes) %}
+          {% set entity_version_change = version(entity.attributes.latest_version | default(''))
+                                          - version(entity.attributes.installed_version | default('')) %}
+          {% if not entity_version_change.major and
+                not entity_version_change.minor and
+                entity_version_change.patch %}
+            {% set ns.allowed = ns.allowed + [ entity.entity_id ] %}
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.allowed | list }}
+  is_there_anything_to_update: &recalc_is_there_anything_to_update '{{ updates_pending | count > 0 }}'
+  updates_to_skip: &recalc_updates_to_skip >-
+    {% if auto_skip_updates %}
+      {% set skip_types = auto_skip_update_types | default([]) %}
+      {% set updates = [] %}
+      {% if 'core_os' in skip_types %}
+        {% set updates = updates + all_core_os_update_entities %}
+      {% endif %}
+      {% if 'firmware' in skip_types %}
+        {% set updates = updates + all_firmware_update_entities %}
+      {% endif %}
+      {% if 'general' in skip_types %}
+        {% set updates = updates + all_general_update_entities %}
+      {% endif %}
+      {{ updates | select('is_state', 'on') | list }}
+    {% else %}
+      {{ [] }}
+    {% endif %}
+
+condition:
+  - condition: or
+    conditions:
+      - condition: template
+        value_template: >-
+          {{
+            updates_pending
+            | list | count | int(0) > 0
+          }}
+      - condition: and
+        conditions:
+          - condition: trigger
+            id: "HA Start"
+          - condition: template
+            value_template: >-
+              {{
+                input_update_process_started_entity | default([]) | count == 1 and
+                is_state(input_update_process_started_entity | first | default(""), "on")
+              }}
+      - condition: template
+        value_template: >-
+          {{ updates_to_skip | list | count | int(0) > 0 }}
 
 action:
-  ########## Refresh update list ##########
-  - &recalc_update_list
-    variables:
-      core_update_entity: >
-            {% for u in integration_entities('hassio') | select('search', '^update[.]')
-                    if (device_attr(u, 'identifiers') | first)[1] == 'core' %}
-                {{ u }}
-            {% endfor %}
-      os_update_entity: >
-            {% for u in integration_entities('hassio') | select('search', '^update[.]')
-                    if (device_attr(u, 'identifiers') | first)[1] == 'OS' %}
-                {{ u }}
-            {% endfor %}
-      supervisor_update_entity: >
-            {% for u in integration_entities('hassio') | select('search', '^update[.]')
-                    if (device_attr(u, 'identifiers') | first)[1] == 'supervisor' %}
-                {{ u }}
-            {% endfor %}
-      firmware_update_entities: >
-            {{ states.update
-              | default([])
-              | selectattr('attributes.device_class', 'defined')
-              | selectattr('attributes.device_class', 'eq', 'firmware')
-              | map(attribute='entity_id')
-              | list
-            }}
-      general_update_entities: >
-        {{ states.update
-          | default([])
-          | rejectattr('entity_id', 'in', core_update_entity)
-          | rejectattr('entity_id', 'in', os_update_entity)
-          | rejectattr('entity_id', 'in', supervisor_update_entity)
-          | rejectattr('entity_id', 'in', firmware_update_entities)
-          | map(attribute='entity_id')
-          | list
-        }}
-
-      input_update_exclusions: >
-            {% set exclusions = temp_input_update_exclusions | default([]) %}
-
-            {% if input_core_os_update_mode == 'ignore' %}
-              {% set exclusions = exclusions + [core_update_entity | default(""), os_update_entity | default("")] %}
-            {% else %}
-              {% set core_installed_version = states.update | default([]) | selectattr('entity_id', 'in', core_update_entity | default("")) | map(attribute='attributes.installed_version') | list | first | default('') %}
-              {% set core_latest_version = states.update | default([]) | selectattr('entity_id', 'in', core_update_entity | default("")) | map(attribute='attributes.latest_version') | list | first | default('') %}
-              {% set core_version_change = version(core_latest_version) - version(core_installed_version) %}
-              {% set os_installed_version = states.update | default([]) | selectattr('entity_id', 'in', os_update_entity | default("")) | map(attribute='attributes.installed_version') | list | first | default('') %}
-              {% set os_latest_version = states.update | default([]) | selectattr('entity_id', 'in', os_update_entity | default("")) | map(attribute='attributes.latest_version') | list | first | default('') %}
-              {% set os_version_change = version(os_latest_version) - version(os_installed_version) %}
-
-              {% if input_core_os_update_mode == 'patches' %}
-                {% if core_version_change.major or core_version_change.minor or (not core_version_change.patch) %}
-                  {% set exclusions = exclusions + [core_update_entity | default("")] %}
-                {% endif %}
-                {% if os_version_change.major or os_version_change.minor or (not os_version_change.patch) %}
-                  {% set exclusions = exclusions + [os_update_entity | default("")] %}
-                {% endif %}
-              {% elif input_core_os_update_mode == 'major_and_minor' %}
-                {% if (not core_version_change.major) and (not core_version_change.minor) %}
-                  {% set exclusions = exclusions + [core_update_entity | default("")] %}
-                {% endif %}
-                {% if (not os_version_change.major) and (not os_version_change.minor) %}
-                  {% set exclusions = exclusions + [os_update_entity | default("")] %}
-                {% endif %}
-              {% endif %}
-            {% endif %}
-
-            {% if input_firmware_update_mode == 'ignore' %}
-              {% set exclusions = exclusions + [ firmware_update_entities ] %}
-            {% else %}
-              {% set ns = namespace(entities = []) %}
-              {% for entity in expand(firmware_update_entities) | rejectattr('entity_id', 'in', exclusions) | selectattr('state', 'eq', 'on') %}
-                {% set entity_version_change = version(entity.attributes.latest_version | default('')) - version(entity.attributes.installed_version | default('')) %}
-                {% if input_firmware_update_mode == 'patches' %}
-                  {% if entity_version_change.major or entity_version_change.minor or (not entity_version_change.patch) %}
-                    {% set ns.entities = ns.entities + [ entity.entity_id ] %}
-                  {% endif %}
-                {% elif input_firmware_update_mode == 'major_and_minor' %}
-                  {% if (not entity_version_change.major) and (not entity_version_change.minor) %}
-                    {% set ns.entities = ns.entities + [ entity.entity_id ] %}
-                  {% endif %}
-                {% endif %}
-              {% endfor %}
-              {% set exclusions = exclusions + [ ns.entities ] %}
-            {% endif %}
-
-            {% if input_general_update_mode == 'ignore' %}
-              {% set exclusions = exclusions + [ general_update_entities ] %}
-            {% else %}
-              {% set ns = namespace(entities = []) %}
-              {% for entity in expand(general_update_entities) | rejectattr('entity_id', 'in', exclusions) | selectattr('state', 'eq', 'on') %}
-                {% set entity_version_change = version(entity.attributes.latest_version | default('')) - version(entity.attributes.installed_version | default('')) %}
-                {% if input_general_update_mode == 'patches' %}
-                  {% if entity_version_change.major or entity_version_change.minor or (not entity_version_change.patch) %}
-                    {% set ns.entities = ns.entities + [ entity.entity_id ] %}
-                  {% endif %}
-                {% elif input_general_update_mode == 'major_and_minor' %}
-                  {% if (not entity_version_change.major) and (not entity_version_change.minor) %}
-                    {% set ns.entities = ns.entities + [ entity.entity_id ] %}
-                  {% endif %}
-                {% endif %}
-              {% endfor %}
-              {% set exclusions = exclusions + [ ns.entities ] %}
-            {% endif %}
-
-            {{ exclusions }}
-
-      pending_updates_list: >
-            {{ states.update
-              | default([])
-              | selectattr('state','eq','on')
-              | rejectattr('entity_id', 'in', input_update_exclusions)
-              | map(attribute='entity_id')
-              | list
-            }}
-
-  - alias: "Refresh update list - update entities"
+  - alias: Refresh update entities
     action: homeassistant.update_entity
-    data: {}
-    target:
-      entity_id: "{{ states.update | map(attribute='entity_id') | list }}"
-    continue_on_error: true
-  - variables:
-      updates_list: '{{ pending_updates_list }}'
-
-  ########## Check for skipping core/OS ##########
-  - alias: "Re-check conditions"
-    continue_on_error: true
-    if: >
-      {{
-        (
-          states.update
-          | selectattr('state','eq','on')
-          | selectattr('entity_id', 'in', pending_updates_list)
-          | rejectattr('entity_id', 'in', input_update_exclusions)
-          | list
-          | count
-          | int(0)
-        ) < 1
-      }}
-    then:
-      - stop: Nothing to update
-  ########## Starting ##########
-  - &logbook-variables
-    if: "{{ input_verbose_logging_bool }}"
-    then:
-      - alias: Logbook - variables
-        continue_on_error: true
-        action: logbook.log
-        data:
-          name: Auto-update
-          entity_id: '{{ this.entity_id }}'
-          message: >-
-            Variables:
-              input_backup_bool: {{ input_backup_bool }},
-              input_restart_type: {{ input_restart_type }},
-              input_verbose_logging_bool: {{ input_verbose_logging_bool }},
-              input_max_backup_age_seconds: {{ input_max_backup_age_seconds }},
-              input_schedule_monthday: {{ input_schedule_monthday }},
-              input_update_exclusions: {{ input_update_exclusions }},
-              input_core_os_update_mode: {{ input_core_os_update_mode }},
-              input_firmware_update_mode: {{ input_firmware_update_mode }},
-              input_general_update_mode: {{ input_general_update_mode }},
-              core_update_entity: {{ core_update_entity }},
-              os_update_entity: {{ os_update_entity }},
-              supervisor_update_entity: {{ supervisor_update_entity }},
-              firmware_update_entities: {{ firmware_update_entities }},
-              general_update_entities: {{ general_update_entities }},
-              updates_list: {{ updates_list }}
-    continue_on_error: true
-
-  - if: "{{ input_verbose_logging_bool }}"
-    then:
-      - alias: "Logbook - A new update is available"
-        action: logbook.log
-        data:
-          name: Auto-update
-          entity_id: '{{ this.entity_id }}'
-          domain: update
-          message: A new update is available for Home Assistant.
-      - alias: "Logbook - List of updates"
-        continue_on_error: true
-        action: logbook.log
-        data:
-          name: Auto-update
-          entity_id: '{{ this.entity_id }}'
-          domain: update
-          message: >
-            List of updates:
-            - {{ states.update
-              | selectattr('state','eq','on')
-              | selectattr('entity_id', 'in', pending_updates_list)
-              | rejectattr('entity_id', 'in', input_update_exclusions)
-              | map(attribute='name') | list | join('
-
-            - ') }}
-      - alias: "Logbook: Running pre-update actions"
-        continue_on_error: true
-        action: logbook.log
-        data:
-          name: Auto-update
-          entity_id: '{{ this.entity_id }}'
-          message: Running pre-update actions...
-    continue_on_error: true
-
-  - alias: "Run pre-update actions"
-    continue_on_error: true
-    choose:
-      - conditions:
-          - '{{ true }}'
-        sequence: !input actions_pre_update
-    default: []
-
-  ########## Backup ##########
-  - alias: Check existing backups uploaded
-    continue_on_error: true
-    if:
-      - "{{ input_max_backup_age_seconds > 0 }}"
-    then:
-      - variables:
-          last_backup_timestamp_list: >
-            {{
-              states.sensor
-              | selectattr("attributes.last_backup", "defined")
-              | map(attribute="attributes.last_backup")
-              | list
-            }}
-          last_backup_timestamp: '{{ last_backup_timestamp_list | max if last_backup_timestamp_list | count > 0 else None }}'
-      - alias: Check if backup state is defined
-        if: '{{ last_backup_timestamp == None }}'
-        then:
-          - stop: "Backup State sensor not found"
-      - alias: Check age of last uploaded backup
-        if: >-
-          {{ as_timestamp(now()) - as_timestamp(last_backup_timestamp) > input_max_backup_age_seconds }}
-        then:
-          - stop: "Last uploaded backup is too old"
-  - alias: "Backup"
-    continue_on_error: true
-    if:
-      - "{{ input_backup_bool }}"
-    then:
-      - if: "{{ input_verbose_logging_bool }}"
-        then:
-          - alias: "Logbook - Backing up"
-            continue_on_error: true
-            action: logbook.log
-            data:
-              name: Auto-update
-              entity_id: '{{ this.entity_id }}'
-              message: Backing up Home Assistant.
-      - alias: "Call backup service"
-        continue_on_error: true
-        action: hassio.backup_full
-        data:
-          compressed: true
-      - if: "{{ input_verbose_logging_bool }}"
-        then:
-          - alias: "Backup triggered"
-            continue_on_error: true
-            action: logbook.log
-            data:
-              name: Auto-update
-              entity_id: '{{ this.entity_id }}'
-              message: Backup triggered.
-          - variables:
-              backup_wait_time: !input backup_wait_time
-              backup_wait_time_seconds: '{{ (backup_wait_time | int(60)) * 60 }}'
-          - if: '{{ backup_wait_time_seconds > 0 }}'
-            then:
-              - alias: "Give selected wait time for the backup" # There's no sensor for when the backup finishes
-                delay: '{{ backup_wait_time_seconds }}'
-    else: []
-
-  ########## Update add-ons (Standard) ##########
-  - *recalc_update_list
-  - *logbook-variables
-  - alias: "Update - Standard"
-    continue_on_error: true
-    repeat:
-      while:
-        - "{{ input_general_update_mode in ['patches', 'major_and_minor', 'all'] }}"
-        - condition: state
-          entity_id: !input schedule_entity
-          state: "on"
-        - condition: template
-          value_template: >
-            {{ ( states.update
-              | selectattr('state','eq','on')
-              | selectattr('entity_id', 'in', pending_updates_list)
-              | rejectattr('entity_id', 'in', core_update_entity)
-              | rejectattr('entity_id', 'in', os_update_entity)
-              | rejectattr('entity_id', 'in', firmware_update_entities)
-              | rejectattr('entity_id', 'in', input_update_exclusions)
-              | map(attribute='entity_id')
-              | list | count | int(0) ) > 0
-            }}
-      sequence:
-        - if: "{{ input_verbose_logging_bool }}"
-          then:
-            - alias: "Update - Standard - Logbook - Starting"
-              continue_on_error: true
-              action: logbook.log
-              data:
-                name: Auto-update
-                entity_id: '{{ this.entity_id }}'
-                message: "Starting sequence of standard updates..."
-        - variables:
-            pending_update_list: >
-              {{ states.update
-                | selectattr('state','eq','on')
-                | selectattr('entity_id', 'in', pending_updates_list)
-                | rejectattr('entity_id', 'in', core_update_entity)
-                | rejectattr('entity_id', 'in', os_update_entity)
-                | rejectattr('entity_id', 'in', firmware_update_entities)
-                | rejectattr('entity_id', 'in', input_update_exclusions)
-                | map(attribute='entity_id')
-                | list
-                }}
-        - if: "{{ input_verbose_logging_bool }}"
-          then:
-            - alias: "Update - Standard - Logbook - Updating"
-              continue_on_error: true
-              action: logbook.log
-              data:
-                name: Auto-update
-                entity_id: '{{ this.entity_id }}'
-                message: "Updating {{pending_update_list[0]}} of {{pending_update_list}} ..."
-        - alias: "Update - Standard - Install"
-          continue_on_error: true
-          action: update.install
-          data: {}
-          target:
-            entity_id: '{{ pending_update_list[0] }}'
-        - alias: "Update - Standard - Wait"
-          continue_on_error: true
-          wait_template: "{{ is_state(pending_update_list[0], 'off') }}"
-          continue_on_timeout: true
-          timeout: '3600'
-
-  ########## Update core items ##########
-  - *recalc_update_list
-  - *logbook-variables
-  - alias: "Update - Core"
-    continue_on_error: true
-    repeat:
-      while:
-        - "{{ input_core_os_update_mode in ['patches', 'major_and_minor', 'all'] }}"
-        - condition: state
-          entity_id: !input schedule_entity
-          state: "on"
-        - condition: template
-          value_template: >
-            {{ ( states.update
-              | selectattr('state','eq','on')
-              | selectattr('entity_id', 'in', pending_updates_list)
-              | selectattr('entity_id', 'in', core_update_entity)
-              | rejectattr('entity_id', 'in', os_update_entity)
-              | rejectattr('entity_id', 'in', firmware_update_entities)
-              | rejectattr('entity_id', 'in', input_update_exclusions)
-              | map(attribute='entity_id')
-              | list | count | int(0) ) > 0
-            }}
-      sequence:
-        - if: "{{ input_verbose_logging_bool }}"
-          then:
-            - alias: "Update - Core - Logbook - Starting"
-              continue_on_error: true
-              action: logbook.log
-              data:
-                name: Auto-update
-                entity_id: '{{ this.entity_id }}'
-                message: "Starting sequence of core items updates..."
-        - variables:
-            pending_update_list: >
-              {{ states.update
-                | selectattr('state','eq','on')
-                | selectattr('entity_id', 'in', pending_updates_list)
-                | selectattr('entity_id', 'in', core_update_entity)
-                | rejectattr('entity_id', 'in', os_update_entity)
-                | rejectattr('entity_id', 'in', firmware_update_entities)
-                | rejectattr('entity_id', 'in', input_update_exclusions)
-                | map(attribute='entity_id')
-                | list
-                }}
-        - if: "{{ input_verbose_logging_bool }}"
-          then:
-            - alias: "Update - Core - Logbook - Updating"
-              continue_on_error: true
-              action: logbook.log
-              data:
-                name: Auto-update
-                entity_id: '{{ this.entity_id }}'
-                message: "Updating {{pending_update_list[0]}} of {{pending_update_list}} ..."
-        - alias: "Update - Core - Install"
-          continue_on_error: true
-          action: update.install
-          data: {}
-          target:
-            entity_id: '{{ pending_update_list[0] }}'
-        - alias: "Update - Core - Wait"
-          continue_on_error: true
-          wait_template: "{{ is_state(pending_update_list[0], 'off') }}"
-          continue_on_timeout: true
-          timeout: '3600'
-
-  ########## Update OS ##########
-  - *recalc_update_list
-  - *logbook-variables
-  - alias: "Update - OS"
-    continue_on_error: true
-    repeat:
-      while:
-        - "{{ input_core_os_update_mode in ['patches', 'major_and_minor', 'all'] }}"
-        - condition: state
-          entity_id: !input schedule_entity
-          state: "on"
-        - condition: template
-          value_template: >
-            {{ ( states.update
-              | selectattr('state','eq','on')
-              | selectattr('entity_id', 'in', pending_updates_list)
-              | rejectattr('entity_id', 'in', core_update_entity)
-              | selectattr('entity_id', 'in', os_update_entity)
-              | rejectattr('entity_id', 'in', firmware_update_entities)
-              | rejectattr('entity_id', 'in', input_update_exclusions)
-              | map(attribute='entity_id')
-              | list | count | int(0) ) > 0
-            }}
-      sequence:
-        - if: "{{ input_verbose_logging_bool }}"
-          then:
-            - alias: "Update - OS - Logbook - Starting"
-              continue_on_error: true
-              action: logbook.log
-              data:
-                name: Auto-update
-                entity_id: '{{ this.entity_id }}'
-                message: "Starting sequence of OS update..."
-        - variables:
-            pending_update_list: >
-              {{ states.update
-                | selectattr('state','eq','on')
-                | selectattr('entity_id', 'in', pending_updates_list)
-                | rejectattr('entity_id', 'in', core_update_entity)
-                | selectattr('entity_id', 'in', os_update_entity)
-                | rejectattr('entity_id', 'in', firmware_update_entities)
-                | rejectattr('entity_id', 'in', input_update_exclusions)
-                | map(attribute='entity_id')
-                | list
-                }}
-        - if: "{{ input_verbose_logging_bool }}"
-          then:
-            - alias: "Update - OS - Logbook - Updating"
-              continue_on_error: true
-              action: logbook.log
-              data:
-                name: Auto-update
-                entity_id: '{{ this.entity_id }}'
-                message: "Updating {{pending_update_list[0]}} of {{pending_update_list}} ..."
-        - alias: "Update - OS - Install"
-          continue_on_error: true
-          action: update.install
-          data: {}
-          target:
-            entity_id: '{{ pending_update_list[0] }}'
-        - alias: "Update - OS - Wait"
-          continue_on_error: true
-          wait_template: "{{ is_state(pending_update_list[0], 'off') }}"
-          continue_on_timeout: true
-          timeout: '3600'
-
-  ########## Devices firmware ##########
-  - *recalc_update_list
-  - alias: "Update - Devices firmware"
-    continue_on_error: true
-    repeat:
-      while:
-        - "{{ input_firmware_update_mode in ['patches', 'major_and_minor', 'all'] }}"
-        - condition: state
-          entity_id: !input schedule_entity
-          state: "on"
-        - condition: template
-          value_template: >
-            {{ ( states.update
-              | selectattr('state','eq','on')
-              | selectattr('entity_id', 'in', pending_updates_list)
-              | rejectattr('entity_id', 'in', core_update_entity)
-              | rejectattr('entity_id', 'in', os_update_entity)
-              | selectattr('entity_id', 'in', firmware_update_entities)
-              | rejectattr('entity_id', 'in', input_update_exclusions)
-              | map(attribute='entity_id')
-              | list | count | int(0) ) > 0
-            }}
-      sequence:
-        - if: "{{ input_verbose_logging_bool }}"
-          then:
-            - alias: "Update - Devices firmware - Logbook - Starting"
-              continue_on_error: true
-              action: logbook.log
-              data:
-                name: Auto-update
-                entity_id: '{{ this.entity_id }}'
-                message: "Starting sequence of Devices firmware update..."
-        - variables:
-            pending_update_list: >
-              {{ states.update
-                | selectattr('state','eq','on')
-                | selectattr('entity_id', 'in', pending_updates_list)
-                | rejectattr('entity_id', 'in', core_update_entity)
-                | rejectattr('entity_id', 'in', os_update_entity)
-                | selectattr('entity_id', 'in', firmware_update_entities)
-                | map(attribute='entity_id')
-                | list
-                }}
-        - if: "{{ input_verbose_logging_bool }}"
-          then:
-            - alias: "Update - Devices firmware - Logbook - Updating"
-              continue_on_error: true
-              action: logbook.log
-              data:
-                name: Auto-update
-                entity_id: '{{ this.entity_id }}'
-                message: "Updating {{pending_update_list[0]}} of {{pending_update_list}} ..."
-        - alias: "Update - Devices firmware - Install"
-          continue_on_error: true
-          action: update.install
-          data: {}
-          target:
-            entity_id: '{{ pending_update_list[0] }}'
-        - alias: "Update - Devices firmware - Wait"
-          continue_on_error: true
-          wait_template: "{{ is_state(pending_update_list[0], 'off') }}"
-          continue_on_timeout: true
-          timeout: '3600'
-
-    ########## Finishing ##########
-  - *recalc_update_list
-  - *logbook-variables
-  - if: "{{ input_verbose_logging_bool }}"
-    then:
-      - alias: "Logbook - Updating"
-        continue_on_error: true
-        action: logbook.log
-        data:
-          name: Auto-update
-          entity_id: '{{ this.entity_id }}'
-          message: Finishing update process.
-      - alias: "Logbook - Remaining updates"
-        continue_on_error: true
-        action: logbook.log
-        data:
-          name: Auto-update
-          entity_id: '{{ this.entity_id }}'
-          message: >
-            Remaining updates:
-            - {{ states.update
-              | selectattr('state','eq','on')
-              | selectattr('entity_id', 'in', pending_updates_list)
-              | rejectattr('entity_id', 'in', input_update_exclusions)
-              | map(attribute='name') | list | join('
-
-            - ') }}
-
-  ########## Restart Home Assistant ##########
-  - if: "{{ input_verbose_logging_bool }}"
-    then:
-      - alias: "Restart - Logbook"
-        continue_on_error: true
-        action: logbook.log
-        data:
-          name: Auto-update
-          entity_id: '{{ this.entity_id }}'
-          message: >
-            {{ states.update
-              | selectattr('attributes.release_summary', 'defined')
-              | selectattr('attributes.release_summary', 'search', "<ha-alert alert-type='error'>")
-              | map(attribute='entity_id')
-              | list
-              | count
-              | int(0) }} item(s) pending a restart:
-            - {{ states.update
-              | selectattr('attributes.release_summary', 'defined')
-              | selectattr('attributes.release_summary', 'search', "<ha-alert alert-type='error'>")
-              | map(attribute='entity_id')
-              | list
-              | join('
-            - ') }}
-  - alias: "Restart"
-    continue_on_error: true
-    if:
-      - >-
-        {{ input_restart_type != "no-restart" and (
-          (
-            states.update
-            | selectattr('attributes.release_summary', 'defined')
-            | selectattr('attributes.release_summary', 'search', "<ha-alert alert-type='error'>")
-            | map(attribute='entity_id')
-            | list | count | int(0)
-          ) > 0)
+    data:
+      entity_id: |
+        {{
+          all_update_entities
         }}
+    continue_on_error: true
+
+  - &recalc_all_variables
+    variables:
+      all_update_entities: *recalc_all_update_entities
+      all_core_os_update_entities: *recalc_all_core_os_update_entities
+      all_firmware_update_entities: *recalc_all_firmware_update_entities
+      all_general_update_entities: *recalc_all_general_update_entities
+      filtered_general_update_entites: *recalc_filtered_general_update_entites
+      all_update_entities_with_changes: *recalc_all_update_entities_with_changes
+      all_core_os_update_entities_with_changes: *recalc_all_core_os_update_entities_with_changes
+      all_firmware_update_entities_with_changes: *recalc_all_firmware_update_entities_with_changes
+      filtered_general_update_entites_with_changes: *recalc_filtered_general_update_entites_with_changes
+      updates_pending: *recalc_updates_pending
+      is_there_anything_to_update: *recalc_is_there_anything_to_update
+      updates_to_skip: *recalc_updates_to_skip
+
+  - alias: If there are any updates
+    if: '{{ is_there_anything_to_update }}'
     then:
-      - alias: "Restart - Check config"
-        continue_on_error: true
-        action: homeassistant.check_config
-      - if:
-          - "{{ states.persistent_notification.invalid_config.state | default('unavailable') == 'notifying' or states.persistent_notification.homeassistant_check_config.state | default('unavailable') == 'notifying' }}"
+      - alias: Preparation  # Inform logbook and telegram which update automation is running
+        sequence:
+          - variables:
+              log_message: '{{ friendly_name }} is {{ "re" if is_resume_after_restart else ""}}starting'
+          - &logbook_update
+            if: "{{ input_verbose_logging_bool }}"
+            then:
+              - alias: Logbook - Update
+                action: logbook.log
+                data:
+                  name: Auto-update
+                  entity_id: '{{ this.entity_id }}'
+                  message: '{{ log_message }}'
+                continue_on_error: true
+            continue_on_error: true
+          - if: '{{ "starting" in input_notification_select_notifications }}'
+            then:
+              - &send_notification
+                sequence:
+                  - variables:
+
+                      notification_message: >-
+                        {%- if is_telegram_notify -%}
+                          {{ log_message
+                            | replace('\\', '\\\\')
+                            | replace('_', '\\_')
+                            | replace('*', '\\*')
+                            | replace('[', '\\[')
+                            | replace(']', '\\]')
+                            | replace('(', '\\(')
+                            | replace(')', '\\)')
+                            | replace('~', '\\~')
+                            | replace('`', '\\`')
+                            | replace('>', '\\>')
+                            | replace('#', '\\#')
+                            | replace('+', '\\+')
+                            | replace('-', '\\-')
+                            | replace('=', '\\=')
+                            | replace('|', '\\|')
+                            | replace('{', '\\{')
+                            | replace('}', '\\}')
+                            | replace('.', '\\.')
+                            | replace('!', '\\!')
+                          }}
+                        {%- else -%}
+                          {{ log_message }}
+                        {%- endif -%}
+                  - if:
+                      - condition: template
+                        value_template: '{{ input_notification_entity | length > 0 }}'
+                        alias: Check if notification entity is configured
+                    then:
+                      - alias: Notify - Send message
+                        action: notify.send_message
+                        target:
+                          entity_id: '{{ input_notification_entity }}'
+                        data:
+                          title: '{{ notification_title }}'
+                          message: '{{ notification_message }}'
+                        continue_on_error: true
+
+      - alias: Report list of updates
+        if:
+          - '{{ is_there_anything_to_update }}'
         then:
-          - if: "{{ input_verbose_logging_bool }}"
+          - variables:
+              log_message: >
+                List of updates:
+
+                - {{ expand(updates_pending)
+                    | map(attribute='name') | list | join("\n- ") }}
+          - *logbook_update
+          - if: '{{ "list_of_updates" in input_notification_select_notifications }}'
             then:
-              - alias: "Logbook: Running pre-restart actions"
-                continue_on_error: true
-                action: logbook.log
-                data:
-                  name: Auto-update
-                  entity_id: '{{ this.entity_id }}'
-                  message: Running pre-restart actions...
-          - alias: "Run pre-restart actions"
-            continue_on_error: true
-            choose:
-              - conditions:
-                  - '{{ true }}'
-                sequence: !input actions_pre_restart
-            default: []
-          - if: "{{ input_verbose_logging_bool }}"
-            then:
-              - alias: "Restart - Logbook - Skipping restart"
-                continue_on_error: true
-                action: logbook.log
-                data:
-                  name: Auto-update
-                  entity_id: '{{ this.entity_id }}'
-                  message: >
-                    Skipping restart process due to notifications of invalid configurations:
-                    states.persistent_notification.invalid_config.state = {{ states.persistent_notification.invalid_config.state | default('unavailable') }},
-                    states.persistent_notification.homeassistant_check_config.state = {{ states.persistent_notification.homeassistant_check_config.state | default('unavailable') }}
+              - *send_notification
         else:
-          - alias: "Restart - Logbook - Restarting"
+          - variables:
+              log_message: "There's nothing to update"
+          - *logbook_update
+          - if: '{{ "list_of_updates" in input_notification_select_notifications }}'
+            then:
+              - *send_notification
+
+      - alias: Set ON helper flag
+        if:
+          - '{{ input_update_process_started_entity | default([]) | count > 0 }}'
+          - '{{ input_update_process_started_entity[0] | string | length > 0 }}'
+          - condition: state
+            entity_id: !input schedule_entity
+            state: 'on'
+        then:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: !input update_process_started_entity
             continue_on_error: true
+
+      - alias: Pre-update actions
+        if:
+          - '{{ is_there_anything_to_update }}'
+          - '{{ not is_resume_after_restart }}'
+          - condition: state
+            entity_id: !input schedule_entity
+            state: 'on'
+        then:
+          - variables:
+              input_actions_pre_update: !input actions_pre_update
+          - condition: '{{ input_actions_pre_update is sequence }}'
+          - *recalc_all_variables
+          - variables:
+              log_message: 'Running pre-update actions...'
+          - *logbook_update
+          - if: '{{ "pre_update_actions" in input_notification_select_notifications }}'
+            then:
+              - *send_notification
+
+          - alias: "Run pre-update actions"
+            continue_on_error: true
+            sequence: !input actions_pre_update
+
+          - variables:
+              log_message: "Pre-update actions completed"
+          - *logbook_update
+          - if: '{{ "pre_update_actions" in input_notification_select_notifications }}'
+            then:
+              - *send_notification
+
+      - alias: Backup
+        if:
+          - '{{ is_there_anything_to_update }}'
+          - '{{ not is_resume_after_restart }}'
+          - condition: state
+            entity_id: !input schedule_entity
+            state: 'on'
+        then:
+          - *recalc_all_variables
+          - variables:
+              input_backup_bool: !input backup_bool
+              input_backup_timeout_minutes: !input backup_timeout
+              input_backup_timeout: '{{ input_backup_timeout_minutes | int(60) }}'
+              temp_max_backup_age: !input max_backup_age
+              input_max_backup_age_seconds: >
+                {{
+                  timedelta(
+                    days=temp_max_backup_age.days,
+                    hours=temp_max_backup_age.hours,
+                    minutes=temp_max_backup_age.minutes,
+                    seconds=temp_max_backup_age.seconds
+                  ).total_seconds()
+                }}
+          - alias: Check existing backups uploaded
+            continue_on_error: true
+            if:
+              - '{{ not is_state("sensor.backup_state", "unknown") }}'
+              - '{{ not is_state("sensor.backup_state", "unavailable") }}'
+              - '{{ input_max_backup_age_seconds > 0 }}'
+            then:
+              - variables:
+                  last_backup_timestamp_list: >
+                    {{
+                      states.sensor
+                      | selectattr("attributes.last_backup", "defined")
+                      | map(attribute="attributes.last_backup")
+                      | list
+                    }}
+                  last_backup_timestamp: '{{ last_backup_timestamp_list | max if last_backup_timestamp_list | count > 0 else None }}'
+              - alias: Check if backup state is defined
+                if: '{{ last_backup_timestamp != None }}'
+                then:
+                  - alias: Check age of last uploaded backup
+                    if: >-
+                      {{ as_timestamp(now()) - as_timestamp(last_backup_timestamp) > input_max_backup_age_seconds }}
+                    then:
+                      - variables:
+                          log_message: "Last uploaded backup is too old"
+                      - *logbook_update
+                      - if: '{{ "backup" in input_notification_select_notifications }}'
+                        then:
+                          - *send_notification
+                      - stop: "Last uploaded backup is too old"
+                else:
+                  - variables:
+                      log_message: "Backup State sensor not found"
+                  - *logbook_update
+                  - if: '{{ "backup" in input_notification_select_notifications }}'
+                    then:
+                      - *send_notification
+                  - stop: "Backup State sensor not found"
+          - alias: "Backup"
+            continue_on_error: true
+            if:
+              - '{{ input_backup_bool }}'
+              - condition: template
+                value_template: >-
+                  {{
+                    input_update_process_started_entity | default([]) | count == 0 or
+                    is_state(input_update_process_started_entity | first | default(""), "off")
+                  }}
+            then:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: "{{ input_update_process_started_entity }}"
+                continue_on_error: true
+              - variables:
+                  log_message: "Backing up Home Assistant"
+              - *logbook_update
+              - if: '{{ "backup" in input_notification_select_notifications }}'
+                then:
+                  - *send_notification
+
+              - alias: "Call backup service"
+                action: hassio.backup_full
+                data:
+                  compressed: true
+                continue_on_error: true
+
+              - variables:
+                  log_message: >
+                    Backup triggered
+
+                    Waiting {{ input_backup_timeout | int(60) }} minutes
+              - *logbook_update
+              - if: '{{ "backup" in input_notification_select_notifications }}'
+                then:
+                  - *send_notification
+
+              - alias: "Wait for the backup"  # There's no sensor for when the backup finishes
+                delay:
+                  minutes: "{{ input_backup_timeout | int(60) }}"
+
+              - variables:
+                  log_message: >
+                    Backup Wait time finished.
+
+                    Continuing...
+              - *logbook_update
+              - if: '{{ "backup" in input_notification_select_notifications }}'
+                then:
+                  - *send_notification
+
+      - *recalc_all_variables
+      - alias: Unified Update Loop
+        if:
+          - '{{ is_there_anything_to_update }}'
+        then:
+          - variables:
+              log_message: 'Starting unified update process with priority order: General → Firmware → Core/OS'
+          - *logbook_update
+          - if: '{{ "update_progress" in input_notification_select_notifications }}'
+            then:
+              - *send_notification
+
+          - alias: "Update - Unified Loop"
+            continue_on_error: true
+            repeat:
+              while:
+                - condition: template
+                  value_template: '{{ updates_pending | count > 0 }}'
+              sequence:
+                - variables:
+                    current_update_entity: '{{ updates_pending[0] }}'
+                    current_update_entity_friendly_name: |
+                      {{ state_attr(current_update_entity, "friendly_name") | default(current_update_entity) }}
+
+                - alias: Log updating
+                  sequence:
+                    - variables:
+                        log_message: 'Updating "{{ current_update_entity_friendly_name }}"...'
+                    - *logbook_update
+                    - if: '{{ "update_progress" in input_notification_select_notifications }}'
+                      then:
+                        - *send_notification
+
+                - alias: "Update - Install"
+                  continue_on_error: true
+                  action: update.install
+                  data: {}
+                  target:
+                    entity_id: '{{ current_update_entity }}'
+
+                - alias: "Update - Wait"
+                  sequence:
+                    - alias: Wait
+                      continue_on_error: true
+                      wait_template: '{{ is_state(current_update_entity, "off") and state_attr(current_update_entity, "in_progress") != true and is_state_attr(current_update_entity, "skipped_version", None) }}'
+                      continue_on_timeout: true
+                      timeout: !input update_timeout
+                    - if: '{{ wait.completed }}'
+                      then:
+                        - variables:
+                            log_message: '"{{ current_update_entity_friendly_name }}" updated successfully'
+                        - *logbook_update
+                        - if: '{{ "update_progress" in input_notification_select_notifications }}'
+                          then:
+                            - *send_notification
+                      else:
+                        - variables:
+                            log_message: 'ERROR: "{{ current_update_entity_friendly_name }}" update timed out'
+                        - *logbook_update
+                        - if: '{{ "update_progress" in input_notification_select_notifications }}'
+                          then:
+                            - *send_notification
+                - *recalc_all_variables
+
+      - alias: Finishing
+        sequence:
+          - *recalc_all_variables
+          - variables:
+              log_message: "Finishing update process"
+          - *logbook_update
+          - if: '{{ "remaining_updates" in input_notification_select_notifications }}'
+            then:
+              - *send_notification
+
+          - variables:
+              remaining_updates: |
+                {{
+                  expand(updates_pending)
+                  | map(attribute='name')
+                  | list
+                }}
+              remaining_updates_count: '{{ remaining_updates | count | int(0) }}'
+          - if: '{{ remaining_updates_count > 0 }}'
+            then:
+              - variables:
+                  log_message: |
+                    Remaining updates:
+                    - {{ remaining_updates | join("\n- ") }}
+              - *logbook_update
+              - if: '{{ "remaining_updates" in input_notification_select_notifications }}'
+                then:
+                  - *send_notification
+            else:
+              - variables:
+                  log_message: "No remaining items to be updated"
+              - *logbook_update
+
+      - alias: Restart  # Restart Home Assistant
+        sequence:
+          - variables:
+              input_restart_type: !input restart_type
+          - condition: '{{ input_restart_type != "no-restart" }}'
+          - alias: Wait pending operations  # Wait for any pending operations to complete
+            continue_on_error: true
+            wait_template: |
+              {{
+                ( all_update_entities | select('is_state_attr', 'in_progress', true)
+                  | list | count | int(0)
+                ) < 1
+              }}
+            continue_on_timeout: true
+            timeout:
+              seconds: 30
+          - &update_pending_restart_items
+            variables:
+              pending_restart_items: |
+                {{ states.update
+                  | selectattr('attributes.release_summary', 'defined')
+                  | selectattr('attributes.release_summary', 'search', "<ha-alert alert-type='error'>")
+                  | map(attribute='name')
+                  | list
+                }}
+              pending_restart_items_count: '{{ pending_restart_items | count | int(0) }}'
+          - if: '{{ pending_restart_items_count < 1 }}'
+            then:
+              - variables:
+                  log_message: 'Nothing requiring a restart'
+              - *logbook_update
+          - condition: '{{ pending_restart_items_count > 0 }}'
+          - variables:
+              log_message: >
+                {{ pending_restart_items_count }} item{{ "s" if pending_restart_items_count > 1 }} pending a restart:
+
+                - {{ pending_restart_items | join("\n- ") }}
+          - *logbook_update
+          - if: '{{ "restart" in input_notification_select_notifications }}'
+            then:
+              - *send_notification
+
+          - alias: "Restart"
+            continue_on_error: true
+            sequence:
+              - condition: '{{ pending_restart_items_count > 0 }}'
+              - alias: "Restart - Check config"
+                continue_on_error: true
+                action: homeassistant.check_config
+              - variables:
+                  has_invalid_config: >
+                    {{
+                      states.persistent_notification.invalid_config.state
+                      | default('unavailable') == 'notifying'
+                    }}
+                  has_check_config_notification: >
+                    {{
+                      states.persistent_notification.homeassistant_check_config.state
+                      | default('unavailable') == 'notifying'
+                    }}
+              - variables:
+                  log_message: 'Running pre-restart actions...'
+              - *logbook_update
+              - if: '{{ "restart" in input_notification_select_notifications }}'
+                then:
+                  - *send_notification
+              - alias: "Run pre-restart actions"
+                continue_on_error: true
+                sequence: !input actions_pre_restart
+              - if: '{{ has_invalid_config or has_check_config_notification }}'
+                then:
+                  - variables:
+                      log_message: >
+                        Skipping restart process due to notifications of invalid configurations:
+
+                          - has_invalid_config = {{ has_invalid_config }}
+
+                          - has_check_config_notification = {{ has_check_config_notification }}
+                  - *logbook_update
+                  - if: '{{ "restart" in input_notification_select_notifications }}'
+                    then:
+                      - *send_notification
+                else:
+                  - variables:
+                      log_message: >
+                        The system is set to restart automatically when an update requires it.
+
+                        Restarting Home Assistant ({{ input_restart_type }})...
+                  - *logbook_update
+                  - if: '{{ "restart" in input_notification_select_notifications }}'
+                    then:
+                      - *send_notification
+
+                  - alias: "Wait 15 seconds to deliver the telegram message."
+                    delay:
+                      seconds: 15
+
+                  - alias: "Restart - Call reboot service"
+                    continue_on_error: true
+                    action: '{{ "hassio.host_reboot" if input_restart_type == "host" else "homeassistant.restart" }}'
+
+      - alias: Post-update actions
+        sequence:
+          - variables:
+              input_actions_post_update: !input actions_post_update
+          - condition: '{{ input_actions_post_update is sequence }}'
+          - variables:
+              log_message: "Running post-update actions"
+          - *logbook_update
+          - if: '{{ "post_update_actions" in input_notification_select_notifications }}'
+            then:
+              - *send_notification
+
+          - alias: "Run post-update actions"
+            continue_on_error: true
+            sequence: !input actions_post_update
+
+      - alias: Done  # All done!
+        sequence:
+          - variables:
+              log_message: "Done!"
+          - *logbook_update
+          - if: '{{ "done" in input_notification_select_notifications }}'
+            then:
+              - *send_notification
+
+  - alias: Set OFF helper flag
+    if:
+      - '{{ input_update_process_started_entity | default([]) | count > 0 }}'
+      - '{{ input_update_process_started_entity[0] | string | length > 0 }}'
+      - '{{ is_state(input_update_process_started_entity[0] | string, "on") }}'
+    then:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: !input update_process_started_entity
+        continue_on_error: true
+  
+  - *recalc_all_variables
+  - alias: Auto-skip new updates (if enabled)
+    if: '{{ updates_to_skip | count > 0 }}'
+    then:
+      - repeat:
+          for_each: '{{ updates_to_skip }}'
+          sequence:
+            - alias: Skip update
+              action: update.skip
+              target:
+                entity_id: '{{ repeat.item }}'
+              continue_on_error: true
+            - delay:
+                seconds: 1
+      - variables:
+          log_message: 'Auto-skipped {{ updates_to_skip | count }} update(s)'
+      - if: "{{ input_verbose_logging_bool }}"
+        then:
+          - alias: Logbook - Auto-skip
             action: logbook.log
             data:
               name: Auto-update
               entity_id: '{{ this.entity_id }}'
-              message: 'Restarting Home Assistant {{ input_restart_type }}...'
-          - alias: "Restart - Call reboot service"
+              message: '{{ log_message }}'
             continue_on_error: true
-            action: '{{ "hassio.host_reboot" if input_restart_type == "host" else "homeassistant.restart" }}'
-
-    ########## Post-update actions ##########
-  - if: "{{ input_verbose_logging_bool }}"
-    then:
-      - alias: "Logbook - Post-actions"
-        continue_on_error: true
-        action: logbook.log
-        data:
-          name: Auto-update
-          entity_id: '{{ this.entity_id }}'
-          message: Running post-update actions...
-
-  - alias: "Run post-update actions"
-    continue_on_error: true
-    choose:
-      - conditions:
-          - '{{ true }}'
-        sequence: !input actions_pos_update
-    default: []
-
-    ########## Done! ##########
-  - if: "{{ input_verbose_logging_bool }}"
-    then:
-      - alias: "Logbook - Done"
-        continue_on_error: true
-        action: logbook.log
-        data:
-          name: Auto-update
-          entity_id: '{{ this.entity_id }}'
-          message: Done!
