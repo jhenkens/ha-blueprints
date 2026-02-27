@@ -150,8 +150,8 @@ trigger:
 action:
   - variables:
       #button_id: '{{ trigger.event.data.property_key_name }}'
-      scene_id: "{{ trigger.event.data.label if ('event' in trigger) }}"
-      event_action: "{{ trigger.event.data.value if ('event' in trigger) }}"
+      scene_id: "{{ trigger.event.data.label if ('event' in trigger and 'label' in trigger.event.data) }}"
+      event_action: "{{ trigger.event.data.value if ('event' in trigger and 'value' in trigger.event.data) }}"
       is_loop_button_1_hold: !input loop_button_1_hold
       is_loop_button_2_hold: !input loop_button_2_hold
       button_1_hold: !input button_1_hold

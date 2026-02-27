@@ -96,8 +96,8 @@ trigger:
 action:
   - variables:
       #button_id: '{{ trigger.event.data.property_key_name }}'
-      scene_id: "{{ trigger.event.data.label if ('event' in trigger)  }}"
-      event_action: "{{ trigger.event.data.value if ('event' in trigger) }}"
+      scene_id: "{{ trigger.event.data.label if ('event' in trigger and 'label' in trigger.event.data) }}"
+      event_action: "{{ trigger.event.data.value if ('event' in trigger and 'value' in trigger.event.data) }}"
   - choose:
       # initialize
       # docs: https://www.support.getzooz.com/kb/article/805-zen52-double-relay-advanced-settings/
