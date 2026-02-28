@@ -744,7 +744,9 @@ blueprint:
               mode: box
 
 mode: single
-max_exceeded: warning
+max_exceeded: silent
+trace:
+  stored_traces: 20
 
 trigger_variables:
   input_pause_entities: !input pause_entities
@@ -1012,7 +1014,7 @@ variables:
         {% endfor %}
       {% endif %}
     {% endfor %}
-    {{ ns.allowed | list }}
+    {{ ns.allowed | reject('in', failed_updates | default([])) | list }}
   is_there_anything_to_update: &recalc_is_there_anything_to_update '{{ updates_pending | count > 0 }}'
   updates_to_skip: &recalc_updates_to_skip >-
     {% if auto_skip_updates %}
@@ -1031,6 +1033,9 @@ variables:
     {% else %}
       {{ [] }}
     {% endif %}
+  failed_updates: "{{ [] }}"
+  prior_attempted_update: "{{ None }}"
+  
 
 condition:
   - condition: or
@@ -1066,6 +1071,7 @@ action:
     continue_on_error: true
 
   - &recalc_all_variables
+    alias: Recalculate all variables
     variables:
       all_update_entities: *recalc_all_update_entities
       all_core_os_update_entities: *recalc_all_core_os_update_entities
@@ -1085,9 +1091,11 @@ action:
     then:
       - alias: Preparation  # Inform logbook and telegram which update automation is running
         sequence:
-          - variables:
+          - alias: Set starting log message
+            variables:
               log_message: '{{ friendly_name }} is {{ "re" if is_resume_after_restart else ""}}starting'
           - &logbook_update
+            alias: Logbook - Verbose log
             if: "{{ input_verbose_logging_bool }}"
             then:
               - alias: Logbook - Update
@@ -1098,11 +1106,14 @@ action:
                   message: '{{ log_message }}'
                 continue_on_error: true
             continue_on_error: true
-          - if: '{{ "starting" in input_notification_select_notifications }}'
+          - alias: Notify - Starting
+            if: '{{ "starting" in input_notification_select_notifications }}'
             then:
               - &send_notification
+                alias: Send notification
                 sequence:
-                  - variables:
+                  - alias: Format notification message
+                    variables:
 
                       notification_message: >-
                         {%- if is_telegram_notify -%}
@@ -1130,7 +1141,8 @@ action:
                         {%- else -%}
                           {{ log_message }}
                         {%- endif -%}
-                  - if:
+                  - alias: Send notification if entity configured
+                    if:
                       - condition: template
                         value_template: '{{ input_notification_entity | length > 0 }}'
                         alias: Check if notification entity is configured
@@ -1148,21 +1160,25 @@ action:
         if:
           - '{{ is_there_anything_to_update }}'
         then:
-          - variables:
+          - alias: Set updates list log message
+            variables:
               log_message: >
                 List of updates:
 
                 - {{ expand(updates_pending)
                     | map(attribute='name') | list | join("\n- ") }}
           - *logbook_update
-          - if: '{{ "list_of_updates" in input_notification_select_notifications }}'
+          - alias: Notify - List of updates
+            if: '{{ "list_of_updates" in input_notification_select_notifications }}'
             then:
               - *send_notification
         else:
-          - variables:
+          - alias: Set nothing to update log message
+            variables:
               log_message: "There's nothing to update"
           - *logbook_update
-          - if: '{{ "list_of_updates" in input_notification_select_notifications }}'
+          - alias: Notify - Nothing to update
+            if: '{{ "list_of_updates" in input_notification_select_notifications }}'
             then:
               - *send_notification
 
@@ -1187,14 +1203,18 @@ action:
             entity_id: !input schedule_entity
             state: 'on'
         then:
-          - variables:
+          - alias: Load pre-update actions
+            variables:
               input_actions_pre_update: !input actions_pre_update
-          - condition: '{{ input_actions_pre_update is sequence }}'
+          - alias: Check pre-update actions is sequence
+            condition: '{{ input_actions_pre_update is sequence }}'
           - *recalc_all_variables
-          - variables:
+          - alias: Set pre-update starting log message
+            variables:
               log_message: 'Running pre-update actions...'
           - *logbook_update
-          - if: '{{ "pre_update_actions" in input_notification_select_notifications }}'
+          - alias: Notify - Pre-update starting
+            if: '{{ "pre_update_actions" in input_notification_select_notifications }}'
             then:
               - *send_notification
 
@@ -1202,10 +1222,12 @@ action:
             continue_on_error: true
             sequence: !input actions_pre_update
 
-          - variables:
+          - alias: Set pre-update completed log message
+            variables:
               log_message: "Pre-update actions completed"
           - *logbook_update
-          - if: '{{ "pre_update_actions" in input_notification_select_notifications }}'
+          - alias: Notify - Pre-update completed
+            if: '{{ "pre_update_actions" in input_notification_select_notifications }}'
             then:
               - *send_notification
 
@@ -1218,7 +1240,8 @@ action:
             state: 'on'
         then:
           - *recalc_all_variables
-          - variables:
+          - alias: Load backup settings
+            variables:
               input_backup_bool: !input backup_bool
               input_backup_timeout_minutes: !input backup_timeout
               input_backup_timeout: '{{ input_backup_timeout_minutes | int(60) }}'
@@ -1239,7 +1262,8 @@ action:
               - '{{ not is_state("sensor.backup_state", "unavailable") }}'
               - '{{ input_max_backup_age_seconds > 0 }}'
             then:
-              - variables:
+              - alias: Get last backup timestamp
+                variables:
                   last_backup_timestamp_list: >
                     {{
                       states.sensor
@@ -1255,21 +1279,27 @@ action:
                     if: >-
                       {{ as_timestamp(now()) - as_timestamp(last_backup_timestamp) > input_max_backup_age_seconds }}
                     then:
-                      - variables:
+                      - alias: Set backup too old log message
+                        variables:
                           log_message: "Last uploaded backup is too old"
                       - *logbook_update
-                      - if: '{{ "backup" in input_notification_select_notifications }}'
+                      - alias: Notify - Backup too old
+                        if: '{{ "backup" in input_notification_select_notifications }}'
                         then:
                           - *send_notification
-                      - stop: "Last uploaded backup is too old"
+                      - alias: Stop - Backup too old
+                        stop: "Last uploaded backup is too old"
                 else:
-                  - variables:
+                  - alias: Set backup sensor not found log message
+                    variables:
                       log_message: "Backup State sensor not found"
                   - *logbook_update
-                  - if: '{{ "backup" in input_notification_select_notifications }}'
+                  - alias: Notify - Backup sensor not found
+                    if: '{{ "backup" in input_notification_select_notifications }}'
                     then:
                       - *send_notification
-                  - stop: "Backup State sensor not found"
+                  - alias: Stop - Backup sensor not found
+                    stop: "Backup State sensor not found"
           - alias: "Backup"
             continue_on_error: true
             if:
@@ -1281,14 +1311,17 @@ action:
                     is_state(input_update_process_started_entity | first | default(""), "off")
                   }}
             then:
-              - action: input_boolean.turn_on
+              - alias: Mark update process started
+                action: input_boolean.turn_on
                 target:
                   entity_id: "{{ input_update_process_started_entity }}"
                 continue_on_error: true
-              - variables:
+              - alias: Set backing up log message
+                variables:
                   log_message: "Backing up Home Assistant"
               - *logbook_update
-              - if: '{{ "backup" in input_notification_select_notifications }}'
+              - alias: Notify - Backup starting
+                if: '{{ "backup" in input_notification_select_notifications }}'
                 then:
                   - *send_notification
 
@@ -1298,13 +1331,15 @@ action:
                   compressed: true
                 continue_on_error: true
 
-              - variables:
+              - alias: Set backup triggered log message
+                variables:
                   log_message: >
                     Backup triggered
 
                     Waiting {{ input_backup_timeout | int(60) }} minutes
               - *logbook_update
-              - if: '{{ "backup" in input_notification_select_notifications }}'
+              - alias: Notify - Backup triggered
+                if: '{{ "backup" in input_notification_select_notifications }}'
                 then:
                   - *send_notification
 
@@ -1312,13 +1347,15 @@ action:
                 delay:
                   minutes: "{{ input_backup_timeout | int(60) }}"
 
-              - variables:
+              - alias: Set backup finished log message
+                variables:
                   log_message: >
                     Backup Wait time finished.
 
                     Continuing...
               - *logbook_update
-              - if: '{{ "backup" in input_notification_select_notifications }}'
+              - alias: Notify - Backup wait finished
+                if: '{{ "backup" in input_notification_select_notifications }}'
                 then:
                   - *send_notification
 
@@ -1327,10 +1364,12 @@ action:
         if:
           - '{{ is_there_anything_to_update }}'
         then:
-          - variables:
+          - alias: Set unified loop starting log message
+            variables:
               log_message: 'Starting unified update process with priority order: General → Firmware → Core/OS'
           - *logbook_update
-          - if: '{{ "update_progress" in input_notification_select_notifications }}'
+          - alias: Notify - Update process starting
+            if: '{{ "update_progress" in input_notification_select_notifications }}'
             then:
               - *send_notification
 
@@ -1341,17 +1380,20 @@ action:
                 - condition: template
                   value_template: '{{ updates_pending | count > 0 }}'
               sequence:
-                - variables:
+                - alias: Set current update entity
+                  variables:
                     current_update_entity: '{{ updates_pending[0] }}'
                     current_update_entity_friendly_name: |
                       {{ state_attr(current_update_entity, "friendly_name") | default(current_update_entity) }}
 
                 - alias: Log updating
                   sequence:
-                    - variables:
+                    - alias: Set updating log message
+                      variables:
                         log_message: 'Updating "{{ current_update_entity_friendly_name }}"...'
                     - *logbook_update
-                    - if: '{{ "update_progress" in input_notification_select_notifications }}'
+                    - alias: Notify - Update progress
+                      if: '{{ "update_progress" in input_notification_select_notifications }}'
                       then:
                         - *send_notification
 
@@ -1369,34 +1411,52 @@ action:
                       wait_template: '{{ is_state(current_update_entity, "off") and state_attr(current_update_entity, "in_progress") != true and is_state_attr(current_update_entity, "skipped_version", None) }}'
                       continue_on_timeout: true
                       timeout: !input update_timeout
-                    - if: '{{ wait.completed }}'
+                    - alias: Check update completed or timed out
+                      if: '{{ wait.completed }}'
                       then:
-                        - variables:
+                        - alias: Set update success log message
+                          variables:
                             log_message: '"{{ current_update_entity_friendly_name }}" updated successfully'
                         - *logbook_update
-                        - if: '{{ "update_progress" in input_notification_select_notifications }}'
+                        - alias: Notify - Update success
+                          if: '{{ "update_progress" in input_notification_select_notifications }}'
                           then:
                             - *send_notification
                       else:
-                        - variables:
+                        - alias: Set update timeout log message
+                          variables:
                             log_message: 'ERROR: "{{ current_update_entity_friendly_name }}" update timed out'
                         - *logbook_update
-                        - if: '{{ "update_progress" in input_notification_select_notifications }}'
+                        - alias: Notify - Update timeout
+                          if: '{{ "update_progress" in input_notification_select_notifications }}'
                           then:
                             - *send_notification
                 - *recalc_all_variables
+                - alias: Check for stuck update
+                  if: '{{ prior_attempted_update == current_update_entity }}'
+                  then:
+                    - alias: Add stuck update to failed list
+                      variables:
+                        failed_updates: '{{ ((failed_updates | default([])) + [current_update_entity]) | unique | list }}'
+                    - *recalc_all_variables
+                - alias: Set prior attempted update
+                  variables:
+                    prior_attempted_update: '{{ current_update_entity }}'
 
       - alias: Finishing
         sequence:
           - *recalc_all_variables
-          - variables:
+          - alias: Set finishing log message
+            variables:
               log_message: "Finishing update process"
           - *logbook_update
-          - if: '{{ "remaining_updates" in input_notification_select_notifications }}'
+          - alias: Notify - Finishing
+            if: '{{ "remaining_updates" in input_notification_select_notifications }}'
             then:
               - *send_notification
 
-          - variables:
+          - alias: Get remaining updates
+            variables:
               remaining_updates: |
                 {{
                   expand(updates_pending)
@@ -1404,26 +1464,32 @@ action:
                   | list
                 }}
               remaining_updates_count: '{{ remaining_updates | count | int(0) }}'
-          - if: '{{ remaining_updates_count > 0 }}'
+          - alias: Check remaining updates
+            if: '{{ remaining_updates_count > 0 }}'
             then:
-              - variables:
+              - alias: Set remaining updates log message
+                variables:
                   log_message: |
                     Remaining updates:
                     - {{ remaining_updates | join("\n- ") }}
               - *logbook_update
-              - if: '{{ "remaining_updates" in input_notification_select_notifications }}'
+              - alias: Notify - Remaining updates
+                if: '{{ "remaining_updates" in input_notification_select_notifications }}'
                 then:
                   - *send_notification
             else:
-              - variables:
+              - alias: Set no remaining updates log message
+                variables:
                   log_message: "No remaining items to be updated"
               - *logbook_update
 
       - alias: Restart  # Restart Home Assistant
         sequence:
-          - variables:
+          - alias: Load restart type
+            variables:
               input_restart_type: !input restart_type
-          - condition: '{{ input_restart_type != "no-restart" }}'
+          - alias: Check restart is enabled
+            condition: '{{ input_restart_type != "no-restart" }}'
           - alias: Wait pending operations  # Wait for any pending operations to complete
             continue_on_error: true
             wait_template: |
@@ -1435,7 +1501,7 @@ action:
             continue_on_timeout: true
             timeout:
               seconds: 30
-          - &update_pending_restart_items
+          - alias: Get pending restart items
             variables:
               pending_restart_items: |
                 {{ states.update
@@ -1445,30 +1511,37 @@ action:
                   | list
                 }}
               pending_restart_items_count: '{{ pending_restart_items | count | int(0) }}'
-          - if: '{{ pending_restart_items_count < 1 }}'
+          - alias: Check nothing needs restart
+            if: '{{ pending_restart_items_count < 1 }}'
             then:
-              - variables:
+              - alias: Set nothing needs restart log message
+                variables:
                   log_message: 'Nothing requiring a restart'
               - *logbook_update
-          - condition: '{{ pending_restart_items_count > 0 }}'
-          - variables:
+          - alias: Check restart is needed
+            condition: '{{ pending_restart_items_count > 0 }}'
+          - alias: Set pending restart items log message
+            variables:
               log_message: >
                 {{ pending_restart_items_count }} item{{ "s" if pending_restart_items_count > 1 }} pending a restart:
 
                 - {{ pending_restart_items | join("\n- ") }}
           - *logbook_update
-          - if: '{{ "restart" in input_notification_select_notifications }}'
+          - alias: Notify - Restart needed
+            if: '{{ "restart" in input_notification_select_notifications }}'
             then:
               - *send_notification
 
           - alias: "Restart"
             continue_on_error: true
             sequence:
-              - condition: '{{ pending_restart_items_count > 0 }}'
+              - alias: Check restart items still pending
+                condition: '{{ pending_restart_items_count > 0 }}'
               - alias: "Restart - Check config"
                 continue_on_error: true
                 action: homeassistant.check_config
-              - variables:
+              - alias: Check config validation status
+                variables:
                   has_invalid_config: >
                     {{
                       states.persistent_notification.invalid_config.state
@@ -1479,18 +1552,22 @@ action:
                       states.persistent_notification.homeassistant_check_config.state
                       | default('unavailable') == 'notifying'
                     }}
-              - variables:
+              - alias: Set pre-restart log message
+                variables:
                   log_message: 'Running pre-restart actions...'
               - *logbook_update
-              - if: '{{ "restart" in input_notification_select_notifications }}'
+              - alias: Notify - Pre-restart
+                if: '{{ "restart" in input_notification_select_notifications }}'
                 then:
                   - *send_notification
               - alias: "Run pre-restart actions"
                 continue_on_error: true
                 sequence: !input actions_pre_restart
-              - if: '{{ has_invalid_config or has_check_config_notification }}'
+              - alias: Check if config is invalid
+                if: '{{ has_invalid_config or has_check_config_notification }}'
                 then:
-                  - variables:
+                  - alias: Set invalid config log message
+                    variables:
                       log_message: >
                         Skipping restart process due to notifications of invalid configurations:
 
@@ -1498,17 +1575,20 @@ action:
 
                           - has_check_config_notification = {{ has_check_config_notification }}
                   - *logbook_update
-                  - if: '{{ "restart" in input_notification_select_notifications }}'
+                  - alias: Notify - Invalid config
+                    if: '{{ "restart" in input_notification_select_notifications }}'
                     then:
                       - *send_notification
                 else:
-                  - variables:
+                  - alias: Set restarting log message
+                    variables:
                       log_message: >
                         The system is set to restart automatically when an update requires it.
 
                         Restarting Home Assistant ({{ input_restart_type }})...
                   - *logbook_update
-                  - if: '{{ "restart" in input_notification_select_notifications }}'
+                  - alias: Notify - Restarting
+                    if: '{{ "restart" in input_notification_select_notifications }}'
                     then:
                       - *send_notification
 
@@ -1522,13 +1602,17 @@ action:
 
       - alias: Post-update actions
         sequence:
-          - variables:
+          - alias: Load post-update actions
+            variables:
               input_actions_post_update: !input actions_post_update
-          - condition: '{{ input_actions_post_update is sequence }}'
-          - variables:
+          - alias: Check post-update actions is sequence
+            condition: '{{ input_actions_post_update is sequence }}'
+          - alias: Set post-update log message
+            variables:
               log_message: "Running post-update actions"
           - *logbook_update
-          - if: '{{ "post_update_actions" in input_notification_select_notifications }}'
+          - alias: Notify - Post-update
+            if: '{{ "post_update_actions" in input_notification_select_notifications }}'
             then:
               - *send_notification
 
@@ -1538,10 +1622,12 @@ action:
 
       - alias: Done  # All done!
         sequence:
-          - variables:
+          - alias: Set done log message
+            variables:
               log_message: "Done!"
           - *logbook_update
-          - if: '{{ "done" in input_notification_select_notifications }}'
+          - alias: Notify - Done
+            if: '{{ "done" in input_notification_select_notifications }}'
             then:
               - *send_notification
 
@@ -1551,7 +1637,8 @@ action:
       - '{{ input_update_process_started_entity[0] | string | length > 0 }}'
       - '{{ is_state(input_update_process_started_entity[0] | string, "on") }}'
     then:
-      - action: input_boolean.turn_off
+      - alias: Mark update process finished
+        action: input_boolean.turn_off
         target:
           entity_id: !input update_process_started_entity
         continue_on_error: true
@@ -1560,7 +1647,8 @@ action:
   - alias: Auto-skip new updates (if enabled)
     if: '{{ updates_to_skip | count > 0 }}'
     then:
-      - repeat:
+      - alias: Skip updates loop
+        repeat:
           for_each: '{{ updates_to_skip }}'
           sequence:
             - alias: Skip update
@@ -1568,11 +1656,14 @@ action:
               target:
                 entity_id: '{{ repeat.item }}'
               continue_on_error: true
-            - delay:
+            - alias: Delay between skips
+              delay:
                 seconds: 1
-      - variables:
+      - alias: Set auto-skip log message
+        variables:
           log_message: 'Auto-skipped {{ updates_to_skip | count }} update(s)'
-      - if: "{{ input_verbose_logging_bool }}"
+      - alias: Logbook - Auto-skip verbose
+        if: "{{ input_verbose_logging_bool }}"
         then:
           - alias: Logbook - Auto-skip
             action: logbook.log

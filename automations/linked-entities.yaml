@@ -3,7 +3,7 @@ blueprint:
   author: Johan Henkens (https://github.com/jhenkens)
   description: >-
 
-    [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fjhenkens%2Fha-blueprints%2Fmain%2Fautomations%2Fha-blueprint-linked-entities.yaml)
+    [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fjhenkens%2Fha-blueprints%2Fmain%2Fautomations%2Flinked-entities.yaml)
 
     **Linked Entities v1.3** 🔛
 
@@ -48,7 +48,7 @@ blueprint:
     [![HA Community - Topic](https://img.shields.io/static/v1?label=HA+Community&message=Topic&color=2ea44f&logo=home-assistant)](https://community.home-assistant.io/t/linked-entities-keep-mutlple-entities-binary-state-in-sync-lights-switches-etc/662836?u=alexdelprete)
 
   domain: automation
-  source_url: https://raw.githubusercontent.com/jhenkens/ha-blueprints/main/automations/ha-blueprint-linked-entities.yaml
+  source_url: https://raw.githubusercontent.com/jhenkens/ha-blueprints/main/automations/linked-entities.yaml
   input:
     parent_entity:
       name: Parent Entities
@@ -75,9 +75,8 @@ blueprint:
 
 mode: single
 max_exceeded: silent
-
-variables:
-  linked_entities: !input linked_entity
+trace:
+  stored_traces: 20
 
 trigger:
   - platform: state
@@ -103,76 +102,96 @@ trigger:
     entity_id: !input parent_entity
     attribute: color_temp
 
+variables:
+  delay_milliseconds: !input delay_miliseconds                                                                                                                               
+  linked_entities: !input linked_entity
+  linked_entities_without_trigger: "{{ linked_entities | reject('eq', trigger.entity_id) | list }}"
+  linked_light_entities_without_trigger: "{{ linked_entities | reject('eq', trigger.entity_id) | select('match', '^light\\.') | list }}"
+  linked_non_light_entities_without_trigger: "{{ linked_entities | reject('eq', trigger.entity_id) | reject('match', '^light\\.') | list }}"
+  linked_fan_entities_without_trigger: "{{ linked_entities | reject('eq', trigger.entity_id) | select('match', '^fan\\.') | list }}"
+  set_fan_speed: "{{ trigger.to_state.attributes.percentage if trigger.to_state.attributes.percentage is defined else none }}"
+  set_light_brightness: "{{ trigger.to_state.attributes.brightness if trigger.to_state.attributes.brightness is defined else none }}"
+  set_light_color_temp: "{{ trigger.to_state.attributes.color_temp if trigger.to_state.attributes.color_temp is defined else none }}"
+
 condition:
   - condition: template
     value_template: "{{ trigger.to_state.context.id != this.context.id }}"
 
 action:
-  - choose:
-      - conditions:
-          - condition: trigger
-            id: turn_on
-        sequence:
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ trigger.entity_id.startswith('light.') and trigger.to_state.attributes.brightness is defined }}"
-                sequence:
-                  - service: light.turn_on
-                    data:
-                      entity_id: "{{ linked_entities | reject('eq', trigger.entity_id) | select('match', '^light\\.') | list }}"
-                      brightness: "{{ trigger.to_state.attributes.brightness }}"
-                  - service: homeassistant.turn_on
-                    target:
-                      entity_id: "{{ linked_entities | reject('eq', trigger.entity_id) | reject('match', '^light\\.') | list }}"
-            default:
-              - service: homeassistant.turn_on
-                target:
-                  entity_id: "{{linked_entities | reject('eq', trigger.entity_id) | list }}"
-          - delay:
-              milliseconds: !input delay_miliseconds
-      - conditions:
-          - condition: trigger
-            id: turn_off
-        sequence:
-          - service: "homeassistant.turn_off"
-            target:
-              entity_id: "{{linked_entities | reject('eq', trigger.entity_id) | list }}"
-          - delay:
-              milliseconds: !input delay_miliseconds
-      - conditions:
-          - condition: trigger
-            id: set_speed
-        sequence:
-          - variables:
-              set_fan_speed: "{{ trigger.to_state.attributes.percentage }}"
-          - service: fan.set_percentage
-            data:
-              entity_id: "{{linked_entities | reject('eq', trigger.entity_id) | list }}"
-              percentage: "{{ set_fan_speed }}"
-          - delay:
-              milliseconds: !input delay_miliseconds
-      - conditions:
-          - condition: trigger
-            id: set_brightness
-        sequence:
-          - variables:
-              set_light_brightness: "{{ trigger.to_state.attributes.brightness }}"
-          - service: light.turn_on
-            data:
-              entity_id: "{{linked_entities | reject('eq', trigger.entity_id) | list }}"
-              brightness: "{{ set_light_brightness }}"
-          - delay:
-              milliseconds: !input delay_miliseconds
-      - conditions:
-          - condition: trigger
-            id: set_color_temp
-        sequence:
-          - variables:
-              set_light_color_temp: "{{ trigger.to_state.attributes.color_temp }}"
-          - service: light.turn_on
-            data:
-              entity_id: "{{linked_entities | reject('eq', trigger.entity_id) | list }}"
-              color_temp: "{{ set_light_color_temp }}"
-          - delay:
-              milliseconds: !input delay_miliseconds
+  - alias: Turn on non-lights
+    if:
+      - condition: trigger
+        id: turn_on
+      - condition: template
+        value_template: "{{ linked_non_light_entities_without_trigger | length > 0 }}"
+    then:
+      - service: homeassistant.turn_on
+        target:
+          entity_id: "{{ linked_non_light_entities_without_trigger }}"
+  - alias: Turn on lights (plain)
+    if:
+      - condition: trigger
+        id: turn_on
+      - condition: template
+        value_template: "{{ linked_light_entities_without_trigger | length > 0 and set_light_brightness is none and set_light_color_temp is none }}"
+    then:
+      - service: light.turn_on
+        target:
+          entity_id: "{{ linked_light_entities_without_trigger }}"
+  - alias: Set light attributes
+    if:
+      - condition: trigger
+        id:
+          - turn_on
+          - set_brightness
+          - set_color_temp
+      - condition: template
+        value_template: "{{ linked_light_entities_without_trigger | length > 0 and (set_light_brightness is not none or set_light_color_temp is not none) }}"
+    then:
+      - choose:
+          - alias: Set brightness and color temp
+            conditions: "{{ set_light_brightness is not none and set_light_color_temp is not none }}"
+            sequence:
+              - service: light.turn_on
+                data:
+                  entity_id: "{{ linked_light_entities_without_trigger }}"
+                  brightness: "{{ set_light_brightness }}"
+                  color_temp: "{{ set_light_color_temp }}"
+          - alias: Set brightness only
+            conditions: "{{ set_light_brightness is not none }}"
+            sequence:
+              - service: light.turn_on
+                data:
+                  entity_id: "{{ linked_light_entities_without_trigger }}"
+                  brightness: "{{ set_light_brightness }}"
+          - alias: Set color temp only
+            conditions: "{{ set_light_color_temp is not none }}"
+            sequence:
+              - service: light.turn_on
+                data:
+                  entity_id: "{{ linked_light_entities_without_trigger }}"
+                  color_temp: "{{ set_light_color_temp }}"
+  - alias: Turn off
+    if:
+      - condition: trigger
+        id: turn_off
+      - condition: template
+        value_template: "{{ linked_entities_without_trigger | length > 0 }}"
+    then:
+      - service: homeassistant.turn_off
+        target:
+          entity_id: "{{ linked_entities_without_trigger }}"
+  - alias: Set fan speed
+    if:
+      - condition: trigger
+        id: set_speed
+      - condition: template
+        value_template: "{{ linked_fan_entities_without_trigger | length > 0 and set_fan_speed is not none }}"
+    then:
+      - service: fan.set_percentage
+        data:
+          entity_id: "{{ linked_fan_entities_without_trigger }}"
+          percentage: "{{ set_fan_speed }}"
+  - alias: Delay
+    delay:
+      milliseconds: "{{ delay_milliseconds }}"
