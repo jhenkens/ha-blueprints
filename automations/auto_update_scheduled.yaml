@@ -925,7 +925,10 @@ variables:
     {% if paused_due_to_pause_entities %}
       []
     {% else %}
-      {{ states.update | default([]) | rejectattr('entity_id', 'in', input_update_exclusions) | map(attribute='entity_id') | list }}
+      {{ states.update | default([]) 
+        | rejectattr('entity_id', 'in', input_update_exclusions) 
+        | rejectattr('state', 'in', ['unavailable', 'unknown'])
+        | map(attribute='entity_id') | list }}
     {% endif %}
   all_core_os_update_entities: &recalc_all_core_os_update_entities >-
     {{ all_update_entities | select('in', [core_update_entity, os_update_entity, supervisor_update_entity]) | list }}
