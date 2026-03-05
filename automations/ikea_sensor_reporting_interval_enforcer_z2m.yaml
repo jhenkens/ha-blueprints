@@ -313,6 +313,7 @@ action:
         {{ ns.d }}
 
       last_attempted: {}
+      should_send_waiting_notification: true
 
       # List of friendly_names that still have at least one attribute needing update
       pending_devices: >
@@ -365,15 +366,23 @@ action:
                   Watch period of {{ watch_duration_minutes }}min ended. Stopping.
             - stop: "Watch duration elapsed"
 
-        # Waiting notification — show top-2 pending devices alphabetically
-        - action: !input notify_entity
-          data:
-            title: "IKEA Sensor Reporter"
-            message: >
-              Waiting for wakeup… ({{ pending_devices | length }} device(s) pending)
-              {% set top = pending_devices | sort %}
-              {% for name in top[:2] %}• {{ name }}
-              {% endfor %}{% if top | length > 2 %}…and {{ top | length - 2 }} more{% endif %}
+        # Waiting notification — only when a valid change was processed last iteration
+        - if:
+            - condition: template
+              value_template: "{{ should_send_waiting_notification }}"
+          then:
+            - action: !input notify_entity
+              data:
+                title: "IKEA Sensor Reporter"
+                message: >
+                  Waiting for wakeup… ({{ pending_devices | length }} device(s) pending)
+                  {% set top = pending_devices | sort %}
+                  {% for name in top[:2] %}• {{ name }}
+                  {% endfor %}{% if top | length > 2 %}…and {{ top | length - 2 }} more{% endif %}
+                tag: "ikea_reporter_waiting"
+
+        - variables:
+            should_send_waiting_notification: false
 
         - variables:
             log_msg: "{{ wait.trigger.payload_json.get('message', '') }}"
@@ -459,6 +468,9 @@ action:
 
             - condition: template
               value_template: "{{ attrs_to_update | length > 0 }}"
+
+            - variables:
+                should_send_waiting_notification: true
 
             # Notify that we detected a wakeup and are about to configure —
             # tagged per device so notifications replace each other
