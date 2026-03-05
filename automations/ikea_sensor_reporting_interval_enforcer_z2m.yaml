@@ -1,0 +1,577 @@
+blueprint:
+  name: IKEA Sensor Reporting Interval Enforcer
+  author: Johan Henkens (https://github.com/jhenkens)
+  source_url: https://raw.githubusercontent.com/jhenkens/ha-blueprints/main/automations/ikea_sensor_reporting_interval_enforcer_z2m.yaml
+  description: >
+    Monitors IKEA PARASOLL door/window sensors and/or BADRING water leakage
+    sensors via Zigbee2MQTT and reconfigures their reporting intervals whenever
+    a sensor wakes up.
+
+    Trigger manually to initialise. Restarts Zigbee2MQTT, parses the device
+    list, then watches bridge/logging for wakeups for the configured duration.
+
+    On each wakeup each reporting attribute is checked individually — skipped
+    if already correct, skipped if the device was attempted within 15 seconds,
+    otherwise configured and confirmed via the response topic.
+
+    The HA-start trigger is present but disabled (impossible condition).
+    Mode is restart so re-triggering abandons the current run.
+
+  domain: automation
+  input:
+    enable_parasoll:
+      name: Monitor PARASOLL door/window sensors
+      default: true
+      selector:
+        boolean:
+
+    enable_badring:
+      name: Monitor BADRING water leakage sensors
+      default: true
+      selector:
+        boolean:
+
+    # ── batteryVoltage ─────────────────────────────────────────────────────────
+    batt_v_min:
+      name: "batteryVoltage — Min report interval (s)"
+      description: "Factory default: 3600. Set to -1 to skip."
+      default: -1
+      selector:
+        number:
+          min: -1
+          max: 86400
+          step: 1
+          unit_of_measurement: s
+          mode: box
+
+    batt_v_max:
+      name: "batteryVoltage — Max report interval (s)"
+      description: "Factory default: 65000. Set to -1 to skip."
+      default: -1
+      selector:
+        number:
+          min: -1
+          max: 86400
+          step: 1
+          unit_of_measurement: s
+          mode: box
+
+    batt_v_change:
+      name: "batteryVoltage — Min reportable change"
+      description: "Factory default: 10. Set to -1 to skip."
+      default: -1
+      selector:
+        number:
+          min: -1
+          max: 200
+          step: 1
+          mode: box
+
+    # ── batteryPercentageRemaining ─────────────────────────────────────────────
+    batt_pct_min:
+      name: "batteryPercentageRemaining — Min report interval (s)"
+      description: "Factory default: 3600. Set to -1 to skip."
+      default: -1
+      selector:
+        number:
+          min: -1
+          max: 86400
+          step: 1
+          unit_of_measurement: s
+          mode: box
+
+    batt_pct_max:
+      name: "batteryPercentageRemaining — Max report interval (s)"
+      description: "Factory default: 65000. Set to -1 to skip."
+      default: -1
+      selector:
+        number:
+          min: -1
+          max: 86400
+          step: 1
+          unit_of_measurement: s
+          mode: box
+
+    batt_pct_change:
+      name: "batteryPercentageRemaining — Min reportable change"
+      description: "Factory default: 10. Set to -1 to skip."
+      default: -1
+      selector:
+        number:
+          min: -1
+          max: 200
+          step: 1
+          mode: box
+
+    # ── zoneStatus (binary sensor — no reportable_change) ─────────────────────
+    zone_min:
+      name: "zoneStatus — Min report interval (s)"
+      description: "Factory default: 0. Set to -1 to skip."
+      default: -1
+      selector:
+        number:
+          min: -1
+          max: 86400
+          step: 1
+          unit_of_measurement: s
+          mode: box
+
+    zone_max:
+      name: "zoneStatus — Max report interval (s)"
+      description: "Factory default: 65000. Set to -1 to skip."
+      default: -1
+      selector:
+        number:
+          min: -1
+          max: 86400
+          step: 1
+          unit_of_measurement: s
+          mode: box
+
+    dry_run:
+      name: Dry Run
+      description: >
+        When enabled, notifications will show what would be configured but no
+        configure-reporting messages will actually be published to Zigbee2MQTT.
+      default: true
+      selector:
+        boolean:
+
+    watch_duration_minutes:
+      name: Watch Duration (minutes)
+      description: >
+        How long to watch for sensor wakeups. The automation sends a timeout
+        notification and stops after this period.
+      default: 15
+      selector:
+        number:
+          min: 1
+          max: 60
+          step: 1
+          unit_of_measurement: minutes
+          mode: slider
+
+    notify_entity:
+      name: Notification Service
+      description: "e.g. notify.mobile_app_my_phone"
+      default: notify.mobile_app_my_phone
+      selector:
+        text:
+
+    z2m_base_topic:
+      name: Zigbee2MQTT Base Topic
+      default: zigbee2mqtt
+      selector:
+        text:
+
+variables:
+  z2m_topic: !input z2m_base_topic
+  dry_run: !input dry_run
+  enable_parasoll: !input enable_parasoll
+  enable_badring: !input enable_badring
+  watch_duration_minutes: !input watch_duration_minutes
+
+  # Raw inputs — captured as plain variables so templates below can reference them
+  _batt_v_min:    !input batt_v_min
+  _batt_v_max:    !input batt_v_max
+  _batt_v_change: !input batt_v_change
+  _batt_pct_min:    !input batt_pct_min
+  _batt_pct_max:    !input batt_pct_max
+  _batt_pct_change: !input batt_pct_change
+  _zone_min: !input zone_min
+  _zone_max: !input zone_max
+
+  # Target intervals/changes — none if set to -1 (skip)
+  cfg_batt_v_min:    "{{ none if _batt_v_min    | int == -1 else _batt_v_min    | int }}"
+  cfg_batt_v_max:    "{{ none if _batt_v_max    | int == -1 else _batt_v_max    | int }}"
+  cfg_batt_v_change: "{{ none if _batt_v_change | int == -1 else _batt_v_change | int }}"
+  cfg_batt_pct_min:    "{{ none if _batt_pct_min    | int == -1 else _batt_pct_min    | int }}"
+  cfg_batt_pct_max:    "{{ none if _batt_pct_max    | int == -1 else _batt_pct_max    | int }}"
+  cfg_batt_pct_change: "{{ none if _batt_pct_change | int == -1 else _batt_pct_change | int }}"
+  cfg_zone_min: "{{ none if _zone_min | int == -1 else _zone_min | int }}"
+  cfg_zone_max: "{{ none if _zone_max | int == -1 else _zone_max | int }}"
+
+trigger:
+  - platform: homeassistant
+    event: start
+
+condition:
+  - condition: template
+    value_template: "{{ false }}"
+
+action:
+  # ── Step 1: notify and restart Z2M ─────────────────────────────────────────
+  - action: !input notify_entity
+    data:
+      title: "IKEA Sensor Reporter"
+      message: >
+        Manually triggered (dry_run={{ dry_run }},
+        parasoll={{ enable_parasoll }}, badring={{ enable_badring }}).
+        Restarting Zigbee2MQTT to obtain device list…
+
+  - service: mqtt.publish
+    data:
+      topic: "{{ z2m_topic }}/bridge/request/restart"
+      payload: ""
+
+  # ── Step 2: wait for Z2M to finish starting ────────────────────────────────
+  - wait_for_trigger:
+      - platform: mqtt
+        topic: "{{ z2m_topic }}/bridge/logging"
+        payload: '{"level":"info","message":"z2m: Zigbee2MQTT started!"}'
+    timeout:
+      seconds: 60
+    continue_on_timeout: false
+
+  # ── Step 3: wait for bridge/devices ────────────────────────────────────────
+  - wait_for_trigger:
+      - platform: mqtt
+        topic: "{{ z2m_topic }}/bridge/devices"
+    timeout:
+      seconds: 30
+    continue_on_timeout: false
+
+  # ── Step 4: parse watched devices ─────────────────────────────────────────
+  # Each report entry carries both the current value from Z2M and the target
+  # value from inputs, so the comparison and payload are self-contained.
+  #
+  # PARASOLL: batteryPercentageRemaining + batteryVoltage on ep1/genPowerCfg,
+  #           zoneStatus on ep2/ssIasZone
+  # BADRING:  all three on ep1
+  - variables:
+      watched_devices: >
+        {% set ns = namespace(d={}) %}
+        {% for dev in wait.trigger.payload_json %}
+          {% set mid = dev.get('model_id', '') %}
+          {% set is_parasoll = mid == 'PARASOLL Door/Window Sensor' %}
+          {% set is_badring  = mid == 'BADRING Water Leakage Sensor' %}
+          {% if dev.get('interview_completed', false)
+                and ((is_parasoll and enable_parasoll) or (is_badring and enable_badring)) %}
+
+            {% set name = dev.friendly_name %}
+            {% set ieee = dev.ieee_address %}
+
+            {# ep1 reportings — both devices #}
+            {% set ep1 = dev.get('endpoints', {}).get('1', {}).get('configured_reportings', []) %}
+            {% set batt_pct = namespace(min_iv=3600, rc=10, max_iv=65000) %}
+            {% set batt_v   = namespace(min_iv=3600, rc=10, max_iv=65000) %}
+            {% for r in ep1 %}
+              {% if r.cluster == 'genPowerCfg' and r.attribute == 'batteryPercentageRemaining' %}
+                {% set batt_pct.min_iv = r.minimum_report_interval %}
+                {% set batt_pct.max_iv = r.maximum_report_interval %}
+                {% set batt_pct.rc     = r.reportable_change %}
+              {% endif %}
+              {% if r.cluster == 'genPowerCfg' and r.attribute == 'batteryVoltage' %}
+                {% set batt_v.min_iv = r.minimum_report_interval %}
+                {% set batt_v.max_iv = r.maximum_report_interval %}
+                {% set batt_v.rc     = r.reportable_change %}
+              {% endif %}
+            {% endfor %}
+
+            {# zoneStatus — ep2 for PARASOLL, ep1 for BADRING #}
+            {% if is_parasoll %}
+              {% set zone_ep    = dev.get('endpoints', {}).get('2', {}).get('configured_reportings', []) %}
+              {% set zone_epnum = 2 %}
+            {% else %}
+              {% set zone_ep    = ep1 %}
+              {% set zone_epnum = 1 %}
+            {% endif %}
+            {% set zone = namespace(min_iv=0, max_iv=65000) %}
+            {% for r in zone_ep %}
+              {% if r.cluster == 'ssIasZone' and r.attribute == 'zoneStatus' %}
+                {% set zone.min_iv = r.minimum_report_interval %}
+                {% set zone.max_iv = r.maximum_report_interval %}
+              {% endif %}
+            {% endfor %}
+
+            {% set entry = {
+              "ieee": ieee,
+              "reports": [
+                {"endpoint": 1, "cluster": "genPowerCfg",
+                 "attribute": "batteryPercentageRemaining",
+                 "cur_min": batt_pct.min_iv, "cur_max": batt_pct.max_iv, "cur_change": batt_pct.rc,
+                 "tgt_min": cfg_batt_pct_min if cfg_batt_pct_min is not none else batt_pct.min_iv,
+                 "tgt_max": cfg_batt_pct_max if cfg_batt_pct_max is not none else batt_pct.max_iv,
+                 "tgt_change": cfg_batt_pct_change if cfg_batt_pct_change is not none else batt_pct.rc},
+                {"endpoint": 1, "cluster": "genPowerCfg",
+                 "attribute": "batteryVoltage",
+                 "cur_min": batt_v.min_iv, "cur_max": batt_v.max_iv, "cur_change": batt_v.rc,
+                 "tgt_min": cfg_batt_v_min if cfg_batt_v_min is not none else batt_v.min_iv,
+                 "tgt_max": cfg_batt_v_max if cfg_batt_v_max is not none else batt_v.max_iv,
+                 "tgt_change": cfg_batt_v_change if cfg_batt_v_change is not none else batt_v.rc},
+                {"endpoint": zone_epnum, "cluster": "ssIasZone",
+                 "attribute": "zoneStatus",
+                 "cur_min": zone.min_iv, "cur_max": zone.max_iv, "cur_change": none,
+                 "tgt_min": cfg_zone_min if cfg_zone_min is not none else zone.min_iv,
+                 "tgt_max": cfg_zone_max if cfg_zone_max is not none else zone.max_iv,
+                 "tgt_change": none}
+              ]
+            } %}
+            {% set ns.d = dict(ns.d, **{name: entry}) %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.d }}
+
+      last_attempted: {}
+
+      # List of friendly_names that still have at least one attribute needing update
+      pending_devices: >
+        {% set ns = namespace(list=[]) %}
+        {% for name, dev in watched_devices.items() %}
+          {% for r in dev.reports %}
+            {% if r.cur_min != r.tgt_min or r.cur_max != r.tgt_max
+                  or (r.tgt_change is not none and r.cur_change != r.tgt_change) %}
+              {% set ns.list = ns.list + [name] %}
+              {% break %}
+            {% endif %}
+          {% endfor %}
+        {% endfor %}
+        {{ ns.list | sort }}
+
+  - action: !input notify_entity
+    data:
+      title: "IKEA Sensor Reporter"
+      message: >
+        Discovered {{ watched_devices | length }} sensor(s)
+        ({{ pending_devices | length }} need updating).
+        {% if dry_run %}⚠️ DRY RUN — no changes will be made.{% endif %}
+        {% if pending_devices | length == 0 %}Nothing to do — exiting.
+        {% else %}Watching for {{ watch_duration_minutes }}min…{% endif %}
+
+  - condition: template
+    value_template: "{{ pending_devices | length > 0 }}"
+
+  # ── Step 5: watch bridge/logging for sensor wakeups (with timeout) ──────────
+  - repeat:
+      while:
+        - condition: template
+          value_template: "{{ true }}"
+      sequence:
+        - wait_for_trigger:
+            - platform: mqtt
+              topic: "{{ z2m_topic }}/bridge/logging"
+          timeout:
+            minutes: "{{ watch_duration_minutes }}"
+          continue_on_timeout: true
+
+        - if:
+            - condition: template
+              value_template: "{{ wait.trigger is none }}"
+          then:
+            - action: !input notify_entity
+              data:
+                title: "IKEA Sensor Reporter"
+                message: >
+                  Watch period of {{ watch_duration_minutes }}min ended. Stopping.
+            - stop: "Watch duration elapsed"
+
+        # Waiting notification — show top-2 pending devices alphabetically
+        - action: !input notify_entity
+          data:
+            title: "IKEA Sensor Reporter"
+            message: >
+              Waiting for wakeup… ({{ pending_devices | length }} device(s) pending)
+              {% set top = pending_devices | sort %}
+              {% for name in top[:2] %}• {{ name }}
+              {% endfor %}{% if top | length > 2 %}…and {{ top | length - 2 }} more{% endif %}
+
+        - variables:
+            log_msg: "{{ wait.trigger.payload_json.get('message', '') }}"
+            log_level: "{{ wait.trigger.payload_json.get('level', '') }}"
+            is_watched_publish: >
+              {{ log_level == 'info'
+                 and ("MQTT publish: topic '" ~ z2m_topic ~ "/") in log_msg
+                 and ('"contact"' in log_msg or '"water_leak"' in log_msg) }}
+
+        - condition: template
+          value_template: "{{ is_watched_publish }}"
+
+        - variables:
+            sensor_name: >
+              {% set prefix = "MQTT publish: topic '" ~ z2m_topic ~ "/" %}
+              {% set start  = log_msg.index(prefix) + prefix | length %}
+              {{ log_msg[start : log_msg.index("'", start)] }}
+
+        - condition: template
+          value_template: "{{ sensor_name in watched_devices }}"
+
+        - variables:
+            sensor_info: "{{ watched_devices[sensor_name] }}"
+
+        - choose:
+            # ── Dry run ────────────────────────────────────────────────────────
+            - conditions:
+                - condition: template
+                  value_template: "{{ dry_run }}"
+              sequence:
+                - action: !input notify_entity
+                  data:
+                    title: "IKEA Sensor Reporter [DRY RUN]"
+                    message: >
+                      {{ sensor_name }} woke up.
+                      {% set last_ts = last_attempted.get(sensor_name, '') %}
+                      {% set age = ((now() - last_ts | as_datetime).total_seconds() if last_ts else 999) | int %}
+                      {% if age < 15 %}
+                      ⏳ Throttled (last attempt {{ age }}s ago) — would skip.
+                      {% else %}
+                      {% for r in sensor_info.reports %}
+                      {% set needs = r.cur_min != r.tgt_min or r.cur_max != r.tgt_max
+                                     or (r.tgt_change is not none and r.cur_change != r.tgt_change) %}
+                      • {{ r.attribute }}:
+                        {% if needs %}→ min {{ r.cur_min }}→{{ r.tgt_min }}s  max {{ r.cur_max }}→{{ r.tgt_max }}s{% if r.tgt_change is not none %}  change {{ r.cur_change }}→{{ r.tgt_change }}{% endif %}
+                        {% else %}✓ already correct{% endif %}
+                      {% endfor %}
+                      {% endif %}
+
+          # ── Live ──────────────────────────────────────────────────────────────
+          default:
+            - variables:
+                _last_ts: "{{ last_attempted.get(sensor_name, '') }}"
+                _age_sec: >
+                  {{ ((now() - _last_ts | as_datetime).total_seconds() if _last_ts else 999) | int }}
+
+            - condition: template
+              value_template: "{{ _age_sec >= 15 }}"
+
+            - variables:
+                last_attempted: "{{ dict(last_attempted, **{sensor_name: now().isoformat()}) }}"
+
+            - variables:
+                attrs_to_update: >
+                  {% set ns = namespace(list=[]) %}
+                  {% for r in sensor_info.reports %}
+                    {% if r.cur_min != r.tgt_min or r.cur_max != r.tgt_max
+                          or (r.tgt_change is not none and r.cur_change != r.tgt_change) %}
+                      {% set ns.list = ns.list + [r] %}
+                    {% endif %}
+                  {% endfor %}
+                  {{ ns.list }}
+
+                skipped_ok: >
+                  {% set ns = namespace(list=[]) %}
+                  {% for r in sensor_info.reports %}
+                    {% if r.cur_min == r.tgt_min and r.cur_max == r.tgt_max
+                          and (r.tgt_change is none or r.cur_change == r.tgt_change) %}
+                      {% set ns.list = ns.list + [r.attribute] %}
+                    {% endif %}
+                  {% endfor %}
+                  {{ ns.list }}
+
+            - condition: template
+              value_template: "{{ attrs_to_update | length > 0 }}"
+
+            # Notify that we detected a wakeup and are about to configure —
+            # tagged per device so notifications replace each other
+            - action: !input notify_entity
+              data:
+                title: "IKEA Sensor Reporter"
+                message: >
+                  {{ sensor_name }} woke up — configuring
+                  {{ attrs_to_update | map(attribute='attribute') | list | join(', ') }}…
+                tag: "ikea_reporter_{{ sensor_name | slugify }}"
+
+            - variables:
+                configure_results: {}
+
+            - repeat:
+                for_each: "{{ attrs_to_update }}"
+                sequence:
+                  - service: mqtt.publish
+                    data:
+                      topic: "{{ z2m_topic }}/bridge/request/device/reporting/configure"
+                      payload: >
+                        {% set p = {
+                          "id": sensor_name,
+                          "endpoint": repeat.item.endpoint,
+                          "cluster": repeat.item.cluster,
+                          "attribute": repeat.item.attribute,
+                          "minimum_report_interval": repeat.item.tgt_min,
+                          "maximum_report_interval": repeat.item.tgt_max
+                        } %}
+                        {% if repeat.item.tgt_change is not none %}
+                          {% set p = dict(p, reportable_change=repeat.item.tgt_change) %}
+                        {% endif %}
+                        {{ p | to_json }}
+
+                  - wait_for_trigger:
+                      - platform: mqtt
+                        topic: "{{ z2m_topic }}/bridge/response/device/reporting/configure"
+                    timeout:
+                      seconds: 10
+                    continue_on_timeout: true
+
+                  - variables:
+                      _attr_key: >
+                        {{ repeat.item.endpoint ~ "|" ~ repeat.item.cluster ~ "|" ~ repeat.item.attribute }}
+                      _response: "{{ wait.trigger.payload_json if wait.trigger else none }}"
+                      _matched: >
+                        {{ _response is not none
+                           and _response.get('data', {}).get('id') == sensor_name
+                           and _response.get('data', {}).get('attribute') == repeat.item.attribute }}
+                      _success: >
+                        {{ _matched and _response.get('status') == 'ok' }}
+                      configure_results: >
+                        {{ dict(configure_results, **{_attr_key: {
+                             "attribute": repeat.item.attribute,
+                             "success": _success,
+                             "status": _response.get('status', 'timeout') if _response else 'timeout',
+                             "error": _response.get('error', '') if _response else 'no response'
+                           }}) }}
+
+                  # On success update the stored cur_* values so this attribute
+                  # is seen as correct on future wakeups.
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ _success }}"
+                        sequence:
+                          - variables:
+                              watched_devices: >
+                                {% set dev = watched_devices[sensor_name] %}
+                                {% set ns = namespace(reports=[]) %}
+                                {% for r in dev.reports %}
+                                  {% if r.endpoint == repeat.item.endpoint
+                                        and r.cluster == repeat.item.cluster
+                                        and r.attribute == repeat.item.attribute %}
+                                    {% set ns.reports = ns.reports + [dict(r,
+                                         cur_min=repeat.item.tgt_min,
+                                         cur_max=repeat.item.tgt_max,
+                                         cur_change=repeat.item.tgt_change)] %}
+                                  {% else %}
+                                    {% set ns.reports = ns.reports + [r] %}
+                                  {% endif %}
+                                {% endfor %}
+                                {{ dict(watched_devices, **{sensor_name: dict(dev, reports=ns.reports)}) }}
+
+                  - delay:
+                      milliseconds: 500
+
+            - action: !input notify_entity
+              data:
+                title: "IKEA Sensor Reporter"
+                message: >
+                  {{ sensor_name }} — results:
+                  {% for key, res in configure_results.items() %}
+                  • {{ res.attribute }}: {{ '✓ ok' if res.success else ('✗ ' ~ res.status ~ ((' — ' ~ res.error) if res.error else '')) }}
+                  {% endfor %}
+                  {% if skipped_ok %}✓ Already correct: {{ skipped_ok | join(', ') }}{% endif %}
+                tag: "ikea_reporter_{{ sensor_name | slugify }}"
+
+            # Update pending_devices — remove sensor_name if all its attributes are now correct
+            - variables:
+                pending_devices: >
+                  {% set dev = watched_devices[sensor_name] %}
+                  {% set still_pending = namespace(v=false) %}
+                  {% for r in dev.reports %}
+                    {% if r.cur_min != r.tgt_min or r.cur_max != r.tgt_max
+                          or (r.tgt_change is not none and r.cur_change != r.tgt_change) %}
+                      {% set still_pending.v = true %}
+                    {% endif %}
+                  {% endfor %}
+                  {% if still_pending.v %}
+                    {{ pending_devices }}
+                  {% else %}
+                    {{ pending_devices | reject('equalto', sensor_name) | list | sort }}
+                  {% endif %}
+
+mode: restart
