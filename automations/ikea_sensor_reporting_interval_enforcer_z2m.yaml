@@ -379,7 +379,8 @@ action:
                   {% set top = pending_devices | sort %}
                   {% for name in top[:2] %}• {{ name }}
                   {% endfor %}{% if top | length > 2 %}…and {{ top | length - 2 }} more{% endif %}
-                tag: "ikea_reporter_waiting"
+                data:
+                  tag: "ikea_reporter_waiting"
 
         - variables:
             should_send_waiting_notification: false
@@ -480,7 +481,8 @@ action:
                 message: >
                   {{ sensor_name }} woke up — configuring
                   {{ attrs_to_update | map(attribute='attribute') | list | join(', ') }}…
-                tag: "ikea_reporter_{{ sensor_name | slugify }}"
+                data:
+                  tag: "ikea_reporter_{{ sensor_name | slugify }}"
 
             - variables:
                 configure_results: {}
@@ -567,7 +569,8 @@ action:
                   • {{ res.attribute }}: {{ '✓ ok' if res.success else ('✗ ' ~ res.status ~ ((' — ' ~ res.error) if res.error else '')) }}
                   {% endfor %}
                   {% if skipped_ok %}✓ Already correct: {{ skipped_ok | join(', ') }}{% endif %}
-                tag: "ikea_reporter_{{ sensor_name | slugify }}"
+                data:
+                  tag: "ikea_reporter_{{ sensor_name | slugify }}"
 
             # Update pending_devices — remove sensor_name if all its attributes are now correct
             - variables:
