@@ -922,14 +922,10 @@ variables:
     {{ input_pause_entities | default([]) | select('is_state', 'on') | list | count > 0 }}
 
   all_update_entities: &recalc_all_update_entities >-
-    {% if paused_due_to_pause_entities %}
-      []
-    {% else %}
-      {{ states.update | default([]) 
-        | rejectattr('entity_id', 'in', input_update_exclusions) 
-        | rejectattr('state', 'in', ['unavailable', 'unknown'])
-        | map(attribute='entity_id') | list }}
-    {% endif %}
+    {{ states.update | default([])
+      | rejectattr('entity_id', 'in', input_update_exclusions)
+      | rejectattr('state', 'in', ['unavailable', 'unknown'])
+      | map(attribute='entity_id') | list }}
   all_core_os_update_entities: &recalc_all_core_os_update_entities >-
     {{ all_update_entities | select('in', [core_update_entity, os_update_entity, supervisor_update_entity]) | list }}
   all_firmware_update_entities: &recalc_all_firmware_update_entities >-
@@ -1000,7 +996,7 @@ variables:
             (now().day > monthday_last and monthday_last != 0) %}
           {% set update_mode = outside_window_mode %}
       {% endif %}
-      {% if schedule_entity == "none" or not is_state(schedule_entity, "on") %}
+      {% if schedule_entity == "none" or not is_state(schedule_entity, "on") or paused_due_to_pause_entities %}
         {% set update_mode = "ignore" %}
       {% endif %}
       {% if update_mode == 'all' %}
