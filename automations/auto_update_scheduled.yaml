@@ -496,6 +496,31 @@ blueprint:
             duration:
               enable_day: true
 
+        override_backup_age_for_force_run:
+          name: Override maximum backup age for manual force run
+          description: |
+            When enabled, manual force runs will use the "Maximum backup age (force run override)"
+            value instead of the regular "Maximum backup age" setting.
+          default: false
+          selector:
+            boolean: {}
+
+        max_backup_age_force_run:
+          name: Maximum backup age (force run override)
+          description: |
+            `Optional`
+
+            Only used when "Override maximum backup age for manual force run" is enabled.
+            Set to zero to skip the backup age check entirely during force runs.
+          default:
+            days: 0
+            hours: 0
+            minutes: 0
+            seconds: 0
+          selector:
+            duration:
+              enable_day: true
+
         backup_location:
           name: Backup Location
           description: |
@@ -743,6 +768,25 @@ blueprint:
               unit_of_measurement: seconds
               mode: box
 
+        manual_run_button_entity:
+          name: Manual Force Run Button
+          description: |
+            `Optional`
+
+            Select a [Button Helper](https://www.home-assistant.io/integrations/input_button) to trigger
+            a forced update run. When pressed, this will bypass update schedule windows and vacation/pause modes
+            and run all eligible updates immediately.
+
+            You can create a button helper under
+            [Settings > Devices & Services > Helpers](https://my.home-assistant.io/redirect/config_flow_start/?domain=input_button).
+          default: []
+          selector:
+            entity:
+              multiple: false
+              domain:
+                - button
+                - input_button
+
 mode: single
 max_exceeded: silent
 trace:
@@ -815,9 +859,16 @@ trigger:
   - id: Pause entities changed
     platform: state
     entity_id: !input pause_entities
+  - id: Manual Force Run
+    platform: state
+    entity_id: !input manual_run_button_entity
+    not_from:
+      - unavailable
+      - unknown
 
 variables:
   temp_input_update_exclusions: !input update_exclusions
+  is_force_run: "{{ trigger is defined and trigger.id == 'Manual Force Run' }}"
   input_verbose_logging_bool: !input verbose_logging_bool
   input_core_os_update_mode: !input core_os_update_mode
   input_firmware_update_mode: !input firmware_update_mode
@@ -996,7 +1047,7 @@ variables:
             (now().day > monthday_last and monthday_last != 0) %}
           {% set update_mode = outside_window_mode %}
       {% endif %}
-      {% if schedule_entity == "none" or not is_state(schedule_entity, "on") or paused_due_to_pause_entities %}
+      {% if not is_force_run and (schedule_entity == "none" or not is_state(schedule_entity, "on") or paused_due_to_pause_entities) %}
         {% set update_mode = "ignore" %}
       {% endif %}
       {% if update_mode == 'all' %}
@@ -1016,7 +1067,7 @@ variables:
     {{ ns.allowed | reject('in', failed_updates | default([])) | list }}
   is_there_anything_to_update: &recalc_is_there_anything_to_update '{{ updates_pending | count > 0 }}'
   updates_to_skip: &recalc_updates_to_skip >-
-    {% if auto_skip_updates %}
+    {% if auto_skip_updates and not is_force_run %}
       {% set skip_types = auto_skip_update_types | default([]) %}
       {% set updates = [] %}
       {% if 'core_os' in skip_types %}
@@ -1058,6 +1109,8 @@ condition:
       - condition: template
         value_template: >-
           {{ updates_to_skip | list | count | int(0) > 0 }}
+      - condition: template
+        value_template: '{{ is_force_run }}'
 
 action:
   - alias: Refresh update entities
@@ -1185,9 +1238,13 @@ action:
         if:
           - '{{ input_update_process_started_entity | default([]) | count > 0 }}'
           - '{{ input_update_process_started_entity[0] | string | length > 0 }}'
-          - condition: state
-            entity_id: !input schedule_entity
-            state: 'on'
+          - condition: or
+            conditions:
+              - condition: state
+                entity_id: !input schedule_entity
+                state: 'on'
+              - condition: template
+                value_template: '{{ is_force_run }}'
         then:
           - action: input_boolean.turn_on
             target:
@@ -1198,9 +1255,13 @@ action:
         if:
           - '{{ is_there_anything_to_update }}'
           - '{{ not is_resume_after_restart }}'
-          - condition: state
-            entity_id: !input schedule_entity
-            state: 'on'
+          - condition: or
+            conditions:
+              - condition: state
+                entity_id: !input schedule_entity
+                state: 'on'
+              - condition: template
+                value_template: '{{ is_force_run }}'
         then:
           - alias: Load pre-update actions
             variables:
@@ -1234,9 +1295,13 @@ action:
         if:
           - '{{ is_there_anything_to_update }}'
           - '{{ not is_resume_after_restart }}'
-          - condition: state
-            entity_id: !input schedule_entity
-            state: 'on'
+          - condition: or
+            conditions:
+              - condition: state
+                entity_id: !input schedule_entity
+                state: 'on'
+              - condition: template
+                value_template: '{{ is_force_run }}'
         then:
           - *recalc_all_variables
           - alias: Load backup settings
@@ -1245,13 +1310,16 @@ action:
               input_backup_timeout_minutes: !input backup_timeout
               input_backup_timeout: '{{ input_backup_timeout_minutes | int(60) }}'
               temp_max_backup_age: !input max_backup_age
+              temp_max_backup_age_force_run: !input max_backup_age_force_run
+              temp_override_backup_age_for_force_run: !input override_backup_age_for_force_run
               input_max_backup_age_seconds: >
+                {% set age = temp_max_backup_age_force_run if is_force_run and temp_override_backup_age_for_force_run else temp_max_backup_age %}
                 {{
                   timedelta(
-                    days=temp_max_backup_age.days,
-                    hours=temp_max_backup_age.hours,
-                    minutes=temp_max_backup_age.minutes,
-                    seconds=temp_max_backup_age.seconds
+                    days=age.days,
+                    hours=age.hours,
+                    minutes=age.minutes,
+                    seconds=age.seconds
                   ).total_seconds()
                 }}
           - alias: Check existing backups uploaded
