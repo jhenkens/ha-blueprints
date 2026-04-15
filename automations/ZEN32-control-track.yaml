@@ -9,7 +9,7 @@ blueprint:
 
     Originally: https://raw.githubusercontent.com/rwalker777/Zen32-HA-Blueprint/refs/heads/main/ZEN32-control-track.yaml
 
-    **Version**: 2026.2.0
+    **Version**: 2026.4.0
   domain: automation
   homeassistant:
     min_version: 2024.6.0
@@ -196,6 +196,12 @@ blueprint:
                 - update
                 - valve
 
+        use_sensor_value_as_color0:
+          name: Use sensor value as color for button 1
+          description: "When enabled, the sensor's state text is used as the LED color (white/blue/green/red/magenta/yellow/cyan). If the state is 'off' or unrecognized, the LED turns off. Overrides the on/off color settings below."
+          default: false
+          selector:
+            boolean: {}
         off_state0:
           name: Off behavior for button 1
           description: Led state when target is off, closed, disarmed or locked
@@ -331,6 +337,12 @@ blueprint:
           description: Choose entity for LED state to track
           default: []
           selector: *entity_selector
+        use_sensor_value_as_color1:
+          name: Use sensor value as color for button 2
+          description: "When enabled, the sensor's state text is used as the LED color (white/blue/green/red/magenta/yellow/cyan). If the state is 'off' or unrecognized, the LED turns off. Overrides the on/off color settings below."
+          default: false
+          selector:
+            boolean: {}
         off_state1:
           name: Off behavior for button 2
           description: Led state when target is off, closed, disarmed or locked
@@ -431,6 +443,12 @@ blueprint:
           description: Choose entity for LED state to track
           default: []
           selector: *entity_selector
+        use_sensor_value_as_color2:
+          name: Use sensor value as color for button 3
+          description: "When enabled, the sensor's state text is used as the LED color (white/blue/green/red/magenta/yellow/cyan). If the state is 'off' or unrecognized, the LED turns off. Overrides the on/off color settings below."
+          default: false
+          selector:
+            boolean: {}
         off_state2:
           name: Off behavior for button 3
           description: Led state when target is off, closed, disarmed or locked
@@ -531,6 +549,12 @@ blueprint:
           description: Choose entity for LED state to track
           default: []
           selector: *entity_selector
+        use_sensor_value_as_color3:
+          name: Use sensor value as color for button 4
+          description: "When enabled, the sensor's state text is used as the LED color (white/blue/green/red/magenta/yellow/cyan). If the state is 'off' or unrecognized, the LED turns off. Overrides the on/off color settings below."
+          default: false
+          selector:
+            boolean: {}
         off_state3:
           name: Off behavior for button 4
           description: Led state when target is off, closed, disarmed or locked
@@ -631,6 +655,12 @@ blueprint:
           description: Choose entity for LED state to track
           default: []
           selector: *entity_selector
+        use_sensor_value_as_color4:
+          name: Use sensor value as color for button 5
+          description: "When enabled, the sensor's state text is used as the LED color (white/blue/green/red/magenta/yellow/cyan). If the state is 'off' or unrecognized, the LED turns off. Overrides the on/off color settings below."
+          default: false
+          selector:
+            boolean: {}
         off_state4:
           name: Off behavior for button 5
           description: Led state when target is off, closed, disarmed or locked
@@ -895,6 +925,7 @@ trigger_variables:
   inputs:
     - button_id: 0
       track_relay: !input "track_relay0"
+      use_sensor_value_as_color: !input "use_sensor_value_as_color0"
       off_state: !input "off_state0"
       off_color: !input "off_color0"
       off_brightness: !input "off_brightness0"
@@ -906,6 +937,7 @@ trigger_variables:
       unavail_brightness: !input "unavail_brightness0"
       trigger_entity: !input "input_entity0"
     - button_id: 1
+      use_sensor_value_as_color: !input "use_sensor_value_as_color1"
       off_state: !input "off_state1"
       off_color: !input "off_color1"
       off_brightness: !input "off_brightness1"
@@ -917,6 +949,7 @@ trigger_variables:
       unavail_brightness: !input "unavail_brightness1"
       trigger_entity: !input "input_entity1"
     - button_id: 2
+      use_sensor_value_as_color: !input "use_sensor_value_as_color2"
       off_state: !input "off_state2"
       off_color: !input "off_color2"
       off_brightness: !input "off_brightness2"
@@ -928,6 +961,7 @@ trigger_variables:
       unavail_brightness: !input "unavail_brightness2"
       trigger_entity: !input "input_entity2"
     - button_id: 3
+      use_sensor_value_as_color: !input "use_sensor_value_as_color3"
       off_state: !input "off_state3"
       off_color: !input "off_color3"
       off_brightness: !input "off_brightness3"
@@ -939,6 +973,7 @@ trigger_variables:
       unavail_brightness: !input "unavail_brightness3"
       trigger_entity: !input "input_entity3"
     - button_id: 4
+      use_sensor_value_as_color: !input "use_sensor_value_as_color4"
       off_state: !input "off_state4"
       off_color: !input "off_color4"
       off_brightness: !input "off_brightness4"
@@ -1158,7 +1193,11 @@ action:
         # ===================================================================
         - variables: &fn_calc_led_vars
             condition: >
-              {% if target_state in off_states %}
+              {% set color_map = {'white': '0', 'blue': '1', 'green': '2', 'red': '3', 'magenta': '4', 'yellow': '5', 'cyan': '6'} %}
+              {% if current.use_sensor_value_as_color %}
+                {% set color = color_map.get(target_state | lower) %}
+                {{ dict(state='3' if color else '2', color=color or '0', brightness=current.on_brightness if color else current.off_brightness) }}
+              {% elif target_state in off_states %}
                 {{ dict(state=current.off_state, color=current.off_color, brightness=current.off_brightness) }}
               {% elif target_state in on_states %}
                 {{ dict(state=current.on_state, color=current.on_color, brightness=current.on_brightness) }}
