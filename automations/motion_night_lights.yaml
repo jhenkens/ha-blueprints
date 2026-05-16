@@ -81,7 +81,7 @@ action:
           - service: light.turn_on
             data:
               transition: 3
-              kelvin: 2000
+              color_temp_kelvin: 2000
             target:
               entity_id: "{{ trigger_light_entity }}"
       - conditions:
