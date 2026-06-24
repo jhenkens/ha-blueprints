@@ -253,6 +253,52 @@ blueprint:
               step: 1
               mode: slider
 
+    when_section_esphome:
+      name: When (ESPHome)
+      icon: mdi:chip
+      description: ESPHome specific schedule settings. Enable to override global settings.
+      collapsed: true
+      input:
+        use_custom_schedule_esphome:
+          name: Use custom schedule for ESPHome
+          description: Enable to use ESPHome-specific schedule instead of global schedule
+          default: false
+          selector:
+            boolean: {}
+
+        schedule_entity_esphome:
+          name: ESPHome Schedule entity
+          description: Schedule for ESPHome updates (only used if custom schedule enabled)
+          default: []
+          selector: *schedule_entity-selector
+
+        schedule_monthday_earliest_esphome:
+          name: Earliest day (ESPHome)
+          description: Earliest day in month for ESPHome updates (0 = disabled)
+          default: 0
+          selector: *day_number-selector
+
+        schedule_monthday_outside_window_mode_esphome:
+          name: Outside day of month window fallback mode (ESPHome)
+          description: >
+            Define the behavior when current day is outside the configured day of month window.
+
+            - Ignore if before: Don't run any ESPHome updates outside the window
+            - Only patches if before: Only run patch updates outside the window
+          default: "ignore"
+          selector: *month_window_fallback-selector
+
+        schedule_monthday_last_esphome:
+          name: Latest day (ESPHome)
+          description: Latest day in month for ESPHome updates (0 = disabled)
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 31
+              step: 1
+              mode: slider
+
     what_section:
       name: What (optional)
       icon: mdi:update
@@ -298,6 +344,23 @@ blueprint:
             * Don't update: Ignore any update.
 
           default: "all"
+          selector: *update_mode-selector
+
+        esphome_update_mode:
+          name: Update mode for ESPHome devices
+          description: >
+            Please select the update mode for ESPHome device updates.
+
+            ESPHome updates are treated as a separate category from general firmware updates,
+            allowing independent scheduling and day-of-month controls.
+
+            * All: All ESPHome updates will be installed.
+
+            * Patches only: Only patch-level updates will be installed.
+
+            * Don't update: Ignore any ESPHome update (default).
+
+          default: "ignore"
           selector: *update_mode-selector
 
         general_update_mode:
@@ -384,16 +447,6 @@ blueprint:
           default: []
           selector: *update_entities-selector
 
-        update_esphome_bool:
-          name: Update ESPHome entities
-          description: >
-            When enabled, update entities provided by ESPHome devices will be included in the automated update process.
-
-            When disabled (default), ESPHome update entities are excluded from automated updates.
-          default: false
-          selector:
-            boolean: {}
-
         auto_skip_updates:
           name: Auto-skip updates as they become available
           description: |
@@ -415,6 +468,8 @@ blueprint:
                   value: core_os
                 - label: Firmware Updates
                   value: firmware
+                - label: ESPHome Updates
+                  value: esphome
                 - label: General Updates (Add-ons, HACS)
                   value: general
 
@@ -818,7 +873,6 @@ trigger_variables:
   auto_skip_updates: !input auto_skip_updates
   auto_skip_update_types: !input auto_skip_update_types
   update_skipped_updates: !input update_skipped_updates
-  input_update_esphome: !input update_esphome_bool
   # Core & OS schedule settings
   use_custom_schedule_core: !input use_custom_schedule_core
   schedule_entity_core: !input schedule_entity_core
@@ -837,6 +891,12 @@ trigger_variables:
   schedule_monthday_earliest_general: !input schedule_monthday_earliest_general
   schedule_monthday_outside_window_mode_general: !input schedule_monthday_outside_window_mode_general
   schedule_monthday_last_general: !input schedule_monthday_last_general
+  # ESPHome schedule settings
+  use_custom_schedule_esphome: !input use_custom_schedule_esphome
+  schedule_entity_esphome: !input schedule_entity_esphome
+  schedule_monthday_earliest_esphome: !input schedule_monthday_earliest_esphome
+  schedule_monthday_outside_window_mode_esphome: !input schedule_monthday_outside_window_mode_esphome
+  schedule_monthday_last_esphome: !input schedule_monthday_last_esphome
 
 trigger:
   - id: Global Schedule Changed
@@ -851,6 +911,9 @@ trigger:
   - id: General Schedule Changed
     platform: state
     entity_id: !input schedule_entity_general
+  - id: ESPHome Schedule Changed
+    platform: state
+    entity_id: !input schedule_entity_esphome
   - id: HA Start
     platform: homeassistant
     event: start
@@ -883,6 +946,7 @@ variables:
   input_verbose_logging_bool: !input verbose_logging_bool
   input_core_os_update_mode: !input core_os_update_mode
   input_firmware_update_mode: !input firmware_update_mode
+  input_esphome_update_mode: !input esphome_update_mode
   input_general_update_mode: !input general_update_mode
   input_update_inclusion_mode: !input update_inclusion_mode
   input_notification_entity: !input notification_entity
@@ -979,10 +1043,24 @@ variables:
     {{ schedule_monthday_outside_window_mode_general if use_custom_schedule_general else schedule_monthday_outside_window_mode }}
   effective_monthday_last_general: >-
     {{ schedule_monthday_last_general | int(0) if use_custom_schedule_general else schedule_monthday_last | int(0) }}
+  # Effective schedule variables for ESPHome
+  effective_schedule_esphome: >-
+    {% if use_custom_schedule_esphome and schedule_entity_esphome | length > 0 %}
+      {{ schedule_entity_esphome }}
+    {% elif schedule_entity | length > 0 %}
+      {{ schedule_entity }}
+    {% else %}
+      none
+    {% endif %}
+  effective_monthday_earliest_esphome: >-
+    {{ schedule_monthday_earliest_esphome | int(0) if use_custom_schedule_esphome else schedule_monthday_earliest | int(0) }}
+  effective_monthday_outside_window_mode_esphome: >-
+    {{ schedule_monthday_outside_window_mode_esphome if use_custom_schedule_esphome else schedule_monthday_outside_window_mode }}
+  effective_monthday_last_esphome: >-
+    {{ schedule_monthday_last_esphome | int(0) if use_custom_schedule_esphome else schedule_monthday_last | int(0) }}
   should_include_skipped: '{{ update_skipped_updates | default(false) }}'
   paused_due_to_pause_entities: >-
     {{ input_pause_entities | default([]) | select('is_state', 'on') | list | count > 0 }}
-  input_update_esphome: !input update_esphome_bool
 
   esphome_update_entities: &recalc_esphome_update_entities >-
     {{ integration_entities("esphome") | select('search', '^update[.]') | list }}
@@ -991,17 +1069,21 @@ variables:
     {{ states.update | default([])
       | rejectattr('entity_id', 'in', input_update_exclusions)
       | rejectattr('state', 'in', ['unavailable', 'unknown'])
-      | map(attribute='entity_id')
-      | reject('in', [] if input_update_esphome else esphome_update_entities)
-      | list }}
+      | map(attribute='entity_id') | list }}
   all_core_os_update_entities: &recalc_all_core_os_update_entities >-
     {{ all_update_entities | select('in', [core_update_entity, os_update_entity, supervisor_update_entity]) | list }}
+  all_esphome_update_entities: &recalc_all_esphome_update_entities >-
+    {{ all_update_entities | select('in', esphome_update_entities) | list }}
   all_firmware_update_entities: &recalc_all_firmware_update_entities >-
-    {{ all_update_entities | select('is_state_attr', 'device_class', 'firmware') | list }}
+    {{ all_update_entities
+      | select('is_state_attr', 'device_class', 'firmware')
+      | reject('in', all_esphome_update_entities)
+      | list }}
   all_general_update_entities: &recalc_all_general_update_entities >-
     {{
       all_update_entities
       | reject('in', all_core_os_update_entities)
+      | reject('in', all_esphome_update_entities)
       | reject('in', all_firmware_update_entities)
       | list
     }}
@@ -1039,6 +1121,9 @@ variables:
   all_core_os_update_entities_with_changes: &recalc_all_core_os_update_entities_with_changes >-
     {{ all_core_os_update_entities | select('in', all_update_entities_with_changes) | list }}
 
+  all_esphome_update_entities_with_changes: &recalc_all_esphome_update_entities_with_changes >-
+    {{ all_esphome_update_entities | select('in', all_update_entities_with_changes) | list }}
+
   all_firmware_update_entities_with_changes: &recalc_all_firmware_update_entities_with_changes >-
     {{ all_firmware_update_entities | select('in', all_update_entities_with_changes) | list }}
 
@@ -1049,6 +1134,7 @@ variables:
   updates_pending: &recalc_updates_pending >-
     {% set changes_lists = [
       [filtered_general_update_entites_with_changes, input_general_update_mode, effective_schedule_general, effective_monthday_earliest_general, effective_monthday_last_general, effective_monthday_outside_window_mode_general],
+      [all_esphome_update_entities_with_changes, input_esphome_update_mode, effective_schedule_esphome, effective_monthday_earliest_esphome, effective_monthday_last_esphome, effective_monthday_outside_window_mode_esphome],
       [all_firmware_update_entities_with_changes, input_firmware_update_mode, effective_schedule_firmware, effective_monthday_earliest_firmware, effective_monthday_last_firmware, effective_monthday_outside_window_mode_firmware],
       [all_core_os_update_entities_with_changes, input_core_os_update_mode, effective_schedule_core, effective_monthday_earliest_core, effective_monthday_last_core, effective_monthday_outside_window_mode_core]
     ] %}
@@ -1092,6 +1178,9 @@ variables:
       {% endif %}
       {% if 'firmware' in skip_types %}
         {% set updates = updates + all_firmware_update_entities %}
+      {% endif %}
+      {% if 'esphome' in skip_types %}
+        {% set updates = updates + all_esphome_update_entities %}
       {% endif %}
       {% if 'general' in skip_types %}
         {% set updates = updates + all_general_update_entities %}
@@ -1145,11 +1234,13 @@ action:
       esphome_update_entities: *recalc_esphome_update_entities
       all_update_entities: *recalc_all_update_entities
       all_core_os_update_entities: *recalc_all_core_os_update_entities
+      all_esphome_update_entities: *recalc_all_esphome_update_entities
       all_firmware_update_entities: *recalc_all_firmware_update_entities
       all_general_update_entities: *recalc_all_general_update_entities
       filtered_general_update_entites: *recalc_filtered_general_update_entites
       all_update_entities_with_changes: *recalc_all_update_entities_with_changes
       all_core_os_update_entities_with_changes: *recalc_all_core_os_update_entities_with_changes
+      all_esphome_update_entities_with_changes: *recalc_all_esphome_update_entities_with_changes
       all_firmware_update_entities_with_changes: *recalc_all_firmware_update_entities_with_changes
       filtered_general_update_entites_with_changes: *recalc_filtered_general_update_entites_with_changes
       updates_pending: *recalc_updates_pending
