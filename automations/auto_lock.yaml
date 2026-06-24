@@ -200,7 +200,7 @@ action:
                       data:
                         title: "{{ home_name }}"
                         message: >-
-                          {{ state_attr(lock, 'friendly_name') | default(lock) }}
+                          {{ state_attr(lock, 'friendly_name') | default(lock) or lock }}
                           is {{ states(lock) }} and cannot be locked.
               - stop: "Lock is in an error state"
           - if:
