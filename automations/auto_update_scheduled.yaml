@@ -1,5 +1,5 @@
 blueprint:
-  name: Home Assistant Auto-update on a schedule base
+  name: Home Assistant Scheduled Auto-update
   author: Johan Henkens (https://github.com/jhenkens)
   homeassistant:
     min_version: 2025.8.0
