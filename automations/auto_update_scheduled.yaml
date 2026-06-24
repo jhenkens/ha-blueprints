@@ -8,7 +8,7 @@ blueprint:
 
     Update Home Assistant automatically when a new update is available.
 
-    ## v2025.12.1
+    ## v2026.6.1
 
     ## Attention:
 
@@ -383,6 +383,16 @@ blueprint:
             => Use this if you want to keep some add-on on an specific version and avoid auto-updates to it.
           default: []
           selector: *update_entities-selector
+
+        update_esphome_bool:
+          name: Update ESPHome entities
+          description: >
+            When enabled, update entities provided by ESPHome devices will be included in the automated update process.
+
+            When disabled (default), ESPHome update entities are excluded from automated updates.
+          default: false
+          selector:
+            boolean: {}
 
         auto_skip_updates:
           name: Auto-skip updates as they become available
@@ -808,6 +818,7 @@ trigger_variables:
   auto_skip_updates: !input auto_skip_updates
   auto_skip_update_types: !input auto_skip_update_types
   update_skipped_updates: !input update_skipped_updates
+  input_update_esphome: !input update_esphome_bool
   # Core & OS schedule settings
   use_custom_schedule_core: !input use_custom_schedule_core
   schedule_entity_core: !input schedule_entity_core
@@ -971,12 +982,18 @@ variables:
   should_include_skipped: '{{ update_skipped_updates | default(false) }}'
   paused_due_to_pause_entities: >-
     {{ input_pause_entities | default([]) | select('is_state', 'on') | list | count > 0 }}
+  input_update_esphome: !input update_esphome_bool
+
+  esphome_update_entities: &recalc_esphome_update_entities >-
+    {{ integration_entities("esphome") | select('search', '^update[.]') | list }}
 
   all_update_entities: &recalc_all_update_entities >-
     {{ states.update | default([])
       | rejectattr('entity_id', 'in', input_update_exclusions)
       | rejectattr('state', 'in', ['unavailable', 'unknown'])
-      | map(attribute='entity_id') | list }}
+      | map(attribute='entity_id')
+      | reject('in', [] if input_update_esphome else esphome_update_entities)
+      | list }}
   all_core_os_update_entities: &recalc_all_core_os_update_entities >-
     {{ all_update_entities | select('in', [core_update_entity, os_update_entity, supervisor_update_entity]) | list }}
   all_firmware_update_entities: &recalc_all_firmware_update_entities >-
@@ -1125,6 +1142,7 @@ action:
   - &recalc_all_variables
     alias: Recalculate all variables
     variables:
+      esphome_update_entities: *recalc_esphome_update_entities
       all_update_entities: *recalc_all_update_entities
       all_core_os_update_entities: *recalc_all_core_os_update_entities
       all_firmware_update_entities: *recalc_all_firmware_update_entities
