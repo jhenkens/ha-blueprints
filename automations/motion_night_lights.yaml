@@ -58,6 +58,34 @@ blueprint:
           step: 1
           unit_of_measurement: seconds
           mode: slider
+    use_illuminance:
+      name: Use Illuminance
+      description: If enabled, motion will only turn lights on if the device's illuminance sensor reads below Max Illuminance.
+      default: false
+      selector:
+        boolean:
+    max_illuminance:
+      name: Max Illuminance
+      description: The illuminance level, in lux, below which motion is allowed to turn the light on. Only used when Use Illuminance is enabled.
+      default: 10
+      selector:
+        number:
+          min: 0
+          max: 1000
+          step: 1
+          unit_of_measurement: lx
+          mode: slider
+    illuminance_delay:
+      name: Illuminance Delay
+      description: How long to wait, in seconds, after motion is detected before checking illuminance. Only used when Use Illuminance is enabled.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 300
+          step: 1
+          unit_of_measurement: seconds
+          mode: slider
 
 mode: parallel
 max_exceeded: warning
@@ -122,6 +150,13 @@ action:
       input_turn_on_transition: !input turn_on_transition
       input_turn_off_transition: !input turn_off_transition
       input_light_entities: "{{ input_motion_entities | map('device_id') | map('device_entities') | map('select','search', '^light[.]') | map('first') | list }}"
+      input_use_illuminance: !input use_illuminance
+      input_max_illuminance: !input max_illuminance
+      input_illuminance_delay: !input illuminance_delay
+      trigger_illuminance_entity: >-
+        {%- if trigger_motion_entity -%}
+        {{ device_entities(device_id(trigger_motion_entity )) | select('search', '^sensor[.]') | select('is_state_attr', 'device_class', 'illuminance') | first }}
+        {%- endif -%}
       is_manual_run: "{{ trigger.id is not defined }}"
       lights_any_on: "{{ input_light_entities | select('is_state', 'on') | list | count > 0 }}"
   - choose:
@@ -129,6 +164,16 @@ action:
           - condition: trigger
             id: *id000
         sequence:
+          - if:
+              - condition: template
+                value_template: "{{ input_use_illuminance and trigger_illuminance_entity }}"
+            then:
+              - delay: "{{ input_illuminance_delay }}"
+              - if:
+                  - condition: template
+                    value_template: "{{ states(trigger_illuminance_entity) | float(0) >= input_max_illuminance }}"
+                then:
+                  - stop: "Illuminance above threshold after delay"
           - service: light.turn_on
             data:
               transition: "{{ input_turn_on_transition }}"
