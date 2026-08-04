@@ -16,7 +16,48 @@ blueprint:
         entity:
           multiple: true
           domain: binary_sensor
-          device_class: motion
+          device_class:
+            - motion
+            - occupancy
+    scope_to_night:
+      name: Scope to Night
+      description: If enabled, motion will only turn lights on between sunset and sunrise. If disabled, motion turns lights on regardless of time of day.
+      default: true
+      selector:
+        boolean:
+    color_temp_kelvin:
+      name: Color Temperature
+      description: The color temperature to set the light to when motion is detected.
+      default: 2000
+      selector:
+        number:
+          min: 2000
+          max: 6500
+          step: 100
+          unit_of_measurement: K
+          mode: slider
+    turn_on_transition:
+      name: Turn On Transition
+      description: The transition time, in seconds, when turning the light on.
+      default: 3
+      selector:
+        number:
+          min: 0
+          max: 30
+          step: 1
+          unit_of_measurement: seconds
+          mode: slider
+    turn_off_transition:
+      name: Turn Off Transition
+      description: The transition time, in seconds, when turning the light off.
+      default: 10
+      selector:
+        number:
+          min: 0
+          max: 30
+          step: 1
+          unit_of_measurement: seconds
+          mode: slider
 
 mode: parallel
 max_exceeded: warning
@@ -39,8 +80,7 @@ trigger:
     event: start
 
 variables:
-  input_motion_entities: !input motion_entities
-  input_light_entities: "{{ input_motion_entities | map('device_id') | map('device_entities') | map('select','search', '^light[.]') | map('first') | list }}"
+  input_scope_to_night: !input scope_to_night
   trigger_motion_entity: >-
     {%- if trigger is defined and trigger.entity_id is defined -%}
     {{ trigger.entity_id }}
@@ -58,9 +98,12 @@ condition:
         conditions:
           - condition: trigger
             id: *id000
-          - condition: sun
-            after: sunset
-            before: sunrise
+          - condition: or
+            conditions:
+              - "{{ not input_scope_to_night }}"
+              - condition: sun
+                after: sunset
+                before: sunrise
           - "{{ is_state(trigger_light_entity,'off') }}"
       - alias: "Motion Cleared Condition"
         condition: and
@@ -68,11 +111,19 @@ condition:
           - condition: trigger
             id: *id001
           - "{{ is_state(trigger_light_entity,'on') }}"
-      - alias: "Default"
+      - alias: "HA Start or Manual Run"
         condition: template
         value_template: "{{ not trigger_motion_entity }}"
 
 action:
+  - variables:
+      input_motion_entities: !input motion_entities
+      input_color_temp_kelvin: !input color_temp_kelvin
+      input_turn_on_transition: !input turn_on_transition
+      input_turn_off_transition: !input turn_off_transition
+      input_light_entities: "{{ input_motion_entities | map('device_id') | map('device_entities') | map('select','search', '^light[.]') | map('first') | list }}"
+      is_manual_run: "{{ trigger.id is not defined }}"
+      lights_any_on: "{{ input_light_entities | select('is_state', 'on') | list | count > 0 }}"
   - choose:
       - conditions:
           - condition: trigger
@@ -80,8 +131,8 @@ action:
         sequence:
           - service: light.turn_on
             data:
-              transition: 3
-              color_temp_kelvin: 2000
+              transition: "{{ input_turn_on_transition }}"
+              color_temp_kelvin: "{{ input_color_temp_kelvin }}"
             target:
               entity_id: "{{ trigger_light_entity }}"
       - conditions:
@@ -90,12 +141,22 @@ action:
         sequence:
           - service: light.turn_off
             data:
-              transition: 10
+              transition: "{{ input_turn_off_transition }}"
             target:
               entity_id: "{{ trigger_light_entity }}"
+      - alias: "Manual Run - Turn On"
+        conditions:
+          - "{{ is_manual_run and not lights_any_on }}"
+        sequence:
+          - service: light.turn_on
+            data:
+              transition: "{{ input_turn_on_transition }}"
+              color_temp_kelvin: "{{ input_color_temp_kelvin }}"
+            target:
+              entity_id: "{{ input_light_entities }}"
     default:
       - service: light.turn_off
         data:
-          transition: 10
+          transition: "{{ input_turn_off_transition }}"
         target:
           entity_id: "{{ input_light_entities }}"
