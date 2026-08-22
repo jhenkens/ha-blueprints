@@ -1,0 +1,77 @@
+blueprint:
+  name: SMCO410 - Clear Alarm Idle State
+  author: Johan Henkens (https://github.com/jhenkens)
+  description: >-
+    Watches a set of chosen binary_sensor entities and, after a configurable
+    delay, presses the enabled "idle status" buttons on whichever device
+    triggered -- one second apart -- to clear the stuck alarm/notification
+    state.
+
+    Create two instances of this blueprint: one watching the "test" sensors
+    (Smoke alarm test / Alarm silenced, etc.) with a short delay, and a
+    separate instance watching the real "Smoke detected" / "Carbon monoxide
+    detected" sensors with a longer delay -- so each has its own idle
+    timing.
+
+    The idle button(s) to press are discovered per-device at run time: it
+    finds the device of whichever entity triggered, then presses every
+    enabled button on that device with "idle" in its entity_id. Disabled
+    idle buttons (e.g. sensor/maintenance/hardware status you don't want
+    polled) are automatically skipped, so trimming which idle buttons are
+    enabled on a device is the only "configuration" needed per detector.
+  domain: automation
+  source_url: https://raw.githubusercontent.com/jhenkens/ha-blueprints/main/automations/smco410_clear_alarm_idle_state.yaml
+  input:
+    trigger_entities:
+      name: Entities to watch
+      description: >-
+        Select the binary_sensor entities that should trigger an idle-status
+        clear -- e.g. all "Smoke alarm test" / CO test sensors for one
+        instance, or all real "Smoke detected" / "Carbon monoxide detected"
+        sensors for another.
+      selector:
+        entity:
+          domain: binary_sensor
+          multiple: true
+    idle_delay:
+      name: Idle delay
+      description: >-
+        Seconds to wait after the trigger fires before pressing idle
+        buttons. Give the physical alarm time to actually stop before
+        re-querying its status, or the idle press will just read back
+        "still alarming."
+      default: 10
+      selector:
+        number:
+          min: 0
+          max: 300
+          unit_of_measurement: seconds
+          mode: box
+
+trigger:
+- platform: state
+  entity_id: !input trigger_entities
+  to: "on"
+
+action:
+- delay:
+    seconds: !input idle_delay
+- variables:
+    idle_buttons: >
+      {% set did = device_id(trigger.entity_id) %}
+      {% set candidates = did
+           and device_entities(did) | select('match', 'button\\..*_idle_') | list
+           or [] %}
+      {% set live = states.button | map(attribute='entity_id') | list %}
+      {{ candidates | select('in', live) | list }}
+- repeat:
+    for_each: "{{ idle_buttons }}"
+    sequence:
+      - action: button.press
+        target:
+          entity_id: "{{ repeat.item }}"
+      - delay:
+          seconds: 1
+
+mode: queued
+max: 10
