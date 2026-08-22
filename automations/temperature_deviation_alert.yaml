@@ -80,6 +80,7 @@ variables:
   alert_high_temperature_1: !input alert_high_temperature_1
   helper_boolean: !input helper_boolean
   notification_tag: '{{state_attr("zone.home", "friendly_name") | lower | replace(" ","_")}}_{{ this.entity_id.split(".")[1] }}'
+  snooze_action_id: 'SNOOZE_{{ notification_tag }}'
 
 mode: restart
 max_exceeded: silent
@@ -138,7 +139,11 @@ action:
                 data:
                   tag: '{{ notification_tag }}'
                   critical: true
-            
+                  actions:
+                    - action: '{{ snooze_action_id }}'
+                      title: 'Snooze 3h'
+                      destructive: true
+
             # Wait
             - wait_for_trigger:
                 - platform: template
@@ -146,7 +151,31 @@ action:
                 - platform: state
                   entity_id: !input helper_boolean
                   to: 'off'
+                - platform: event
+                  id: snooze
+                  event_type: mobile_app_notification_action
+                  event_data:
+                    action: '{{ snooze_action_id }}'
               timeout: !input repeat_delay
+
+            # If the snooze action was pressed, pause re-alerting for 3 hours
+            # (or until the temperature drops / the alert is cleared).
+            - if:
+                - condition: template
+                  value_template: "{{ wait.trigger is not none and wait.trigger.id == 'snooze' }}"
+              then:
+                - action: notify.default
+                  data:
+                    tag: '{{ notification_tag }}'
+                    message: "{{ friendly_name }} alert snoozed for 3 hours - {{now().strftime('%H:%M:%S on %m/%d/%y')}}"
+                - wait_for_trigger:
+                    - platform: template
+                      value_template: "{{ states(temperature_sensor) | float < alert_high_temperature_1}}"
+                    - platform: state
+                      entity_id: !input helper_boolean
+                      to: 'off'
+                  timeout:
+                    hours: 3
 
   - alias: "Returned"
     conditions:
