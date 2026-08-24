@@ -1,23 +1,27 @@
 blueprint:
-  name: Lock Code Manager Slot Notifications
-  description: Send notifications when specific Lock Code Manager code slots are used to lock or unlock a door
+  name: Lock Code Manager Credential Notifications
+  description: >-
+    Send notifications when a Lock Code Manager credential (PIN) is used to lock or
+    unlock a door. Monitors every current and future name/credential configured under
+    the selected Lock Code Manager instance automatically -- add or remove names in
+    LCM and this automation keeps working without any changes here.
   domain: automation
   author: Johan Henkens (https://github.com/jhenkens)
   source_url: https://raw.githubusercontent.com/jhenkens/ha-blueprints/main/automations/lcm_slot_notifications.yaml
   input:
-    lcm_slot_devices:
-      name: Lock Code Manager Slot Devices
+    lcm_config_entry:
+      name: Lock Code Manager Instance
       description: >-
-        Select the Lock Code Manager slot devices to monitor.
-        These are devices ending in "Slot X" created by the LCM integration.
+        The Lock Code Manager integration instance to monitor. Every current and
+        future name/credential configured under this instance is automatically
+        included -- no need to touch this automation when names are added or removed
+        in LCM.
       selector:
-        device:
+        config_entry:
           integration: lock_code_manager
-          model: "Code Slot"
-          multiple: true
     notify_devices:
       name: Notification Devices
-      description: Devices to notify when a monitored slot is used.
+      description: Devices to notify when a monitored credential is used.
       default: []
       selector:
         device:
@@ -27,58 +31,77 @@ blueprint:
       name: Title Notifications Using Home's Friendly Name
       description: >-
         If enabled, notification titles will be prefixed with the friendly name
-        of zone.home (e.g. "My Home - Slot Name").
+        of zone.home (e.g. "My Home - Jake and Ny").
       default: false
       selector:
         boolean:
     notify_on_lock:
       name: Notify on Lock Events
-      description: If enabled, also send notifications when the slot is used to lock the door.
+      description: If enabled, also send notifications when the credential is used to lock the door.
       default: false
       selector:
         boolean:
+    ignore_devices:
+      name: Names to Ignore
+      description: >-
+        Select Lock Code Manager users/names to never notify for -- e.g. your own
+        long-running code, or a permanent resident's code you don't need pinged
+        for. Pick the LCM device itself rather than typing the name, so it can't
+        drift out of sync if the name changes. New names are still auto-included
+        as they're added in LCM -- this only excludes the specific devices you
+        pick here. Note: this list shows LCM devices across any LCM instance on
+        this system, not just the one selected above.
+      default: []
+      selector:
+        device:
+          integration: lock_code_manager
+          multiple: true
 
 variables:
-  lcm_slot_devices: !input lcm_slot_devices
+  lcm_config_entry: !input lcm_config_entry
   notify_devices: !input notify_devices
   use_home_name: !input use_home_name
   home_name: >-
     {{ state_attr('zone.home', 'friendly_name') if use_home_name else '' }}
   notify_on_lock: !input notify_on_lock
-  lcm_slot_numbers: >-
-    {% set slot_numbers = namespace(values=[]) %}
-    {% for device_id in lcm_slot_devices %}
-      {% set slot_numbers.values = slot_numbers.values + [device_attr(device_id, 'name').split()[-1]] %}
+  ignore_devices: !input ignore_devices
+  ignore_names_lower: >-
+    {% set names = namespace(values=[]) %}
+    {% for device_id in ignore_devices %}
+      {% for entity_id in device_entities(device_id) %}
+        {% if entity_id.startswith('text.') and entity_id.endswith('_name') %}
+          {% set names.values = names.values + [states(entity_id) | lower | trim] %}
+        {% endif %}
+      {% endfor %}
     {% endfor %}
-    {{ slot_numbers.values }}
+    {{ names.values }}
 
-trigger:
-  - platform: event
+triggers:
+  - trigger: event
     event_type: lock_code_manager_lock_state_changed
 
-condition:
+conditions:
   - condition: template
     value_template: >-
-      {{ trigger.event.data.lock_code_manager_config_entry_id in
-         (lcm_slot_devices | map('device_attr', 'config_entries') | map('list') | sum(start=[]) | list) }}
-  - condition: template
-    value_template: >-
-      {{ trigger.event.data.code_slot | string in lcm_slot_numbers }}
+      {{ trigger.event.data.lock_code_manager_config_entry_id == lcm_config_entry }}
   - condition: template
     value_template: >-
       {{ trigger.event.data.state != 'locked' or notify_on_lock }}
+  - condition: template
+    value_template: >-
+      {{ (trigger.event.data.code_slot_name | lower | trim) not in ignore_names_lower }}
 
-action:
+actions:
   - repeat:
       for_each: "{{ notify_devices }}"
       sequence:
-        - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+        - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
           data:
             title: "{{ home_name }}"
             message: >-
               {{ state_attr(trigger.event.data.entity_id, 'friendly_name') | default(trigger.event.data.entity_id) }}
               was {{ trigger.event.data.state }} by {{ trigger.event.data.code_slot_name }}
-              (Slot {{ trigger.event.data.code_slot }}) via {{ trigger.event.data.action_text }}.
+              via {{ trigger.event.data.action_text }}.
 
 mode: queued
 max: 10
