@@ -5,6 +5,13 @@ blueprint:
     unlock a door. Monitors every current and future name/credential configured under
     the selected Lock Code Manager instance automatically -- add or remove names in
     LCM and this automation keeps working without any changes here.
+
+
+    Uses the unified `lock_code_manager_credential_used` event (LCM 5.2.0+),
+    which replaced the now-deprecated `lock_code_manager_lock_state_changed`
+    event. If you're updating an existing automation created from an older
+    version of this blueprint, re-import this blueprint and it will keep
+    working with the same inputs.
   domain: automation
   author: Johan Henkens (https://github.com/jhenkens)
   source_url: https://raw.githubusercontent.com/jhenkens/ha-blueprints/main/automations/lcm_slot_notifications.yaml
@@ -78,20 +85,27 @@ variables:
 
 triggers:
   - trigger: event
-    event_type: lock_code_manager_lock_state_changed
+    event_type: lock_code_manager_credential_used
 
 conditions:
   - condition: template
     value_template: >-
-      {{ trigger.event.data.lock_code_manager_config_entry_id == lcm_config_entry }}
+      {{ trigger.event.data.config_entry_id == lcm_config_entry }}
   - condition: template
     value_template: >-
-      {{ trigger.event.data.state != 'locked' or notify_on_lock }}
+      {{ trigger.event.data.operation != 'lock' or notify_on_lock }}
   - condition: template
     value_template: >-
-      {{ (trigger.event.data.code_slot_name | lower | trim) not in ignore_names_lower }}
+      {{ (trigger.event.data.name | lower | trim) not in ignore_names_lower }}
 
 actions:
+  - variables:
+      target_name: >-
+        {{ state_attr(trigger.event.data.target, 'friendly_name') | default(trigger.event.data.target, true) }}
+      source_name: >-
+        {{ state_attr(trigger.event.data.source, 'friendly_name') | default(trigger.event.data.source, true) }}
+      operation_word: >-
+        {{ {'lock': 'locked', 'unlock': 'unlocked'}.get(trigger.event.data.operation, 'used') }}
   - repeat:
       for_each: "{{ notify_devices }}"
       sequence:
@@ -99,9 +113,8 @@ actions:
           data:
             title: "{{ home_name }}"
             message: >-
-              {{ state_attr(trigger.event.data.entity_id, 'friendly_name') | default(trigger.event.data.entity_id) }}
-              was {{ trigger.event.data.state }} by {{ trigger.event.data.code_slot_name }}
-              via {{ trigger.event.data.action_text }}.
+              {{ target_name }} was {{ operation_word }} by {{ trigger.event.data.name }}
+              {%- if source_name != target_name %} via {{ source_name }}{% endif -%}.
 
 mode: queued
 max: 10
