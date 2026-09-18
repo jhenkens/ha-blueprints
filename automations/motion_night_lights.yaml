@@ -159,6 +159,14 @@ action:
         {%- endif -%}
       is_manual_run: "{{ trigger.id is not defined }}"
       lights_any_on: "{{ input_light_entities | select('is_state', 'on') | list | count > 0 }}"
+  - if:
+      - condition: trigger
+        id: *id003
+    then:
+      # MQTT/Zigbee2MQTT lights are still unavailable ~1 min after boot
+      - wait_template: "{{ input_light_entities | reject('is_state', 'unavailable') | list | count == input_light_entities | count }}"
+        timeout: "00:02:00"
+        continue_on_timeout: false
   - choose:
       - conditions:
           - condition: trigger

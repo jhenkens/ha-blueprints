@@ -1217,10 +1217,10 @@ action:
 
         # --- Validate & Execute ---
         # If the entity state was something unexpected that is not tracked, 'condition.state'
-        # will be 'None', and we safely skip executing the Z-Wave commands.
+        # will be None, and we safely skip executing the Z-Wave commands.
         - if:
             - condition: template
-              value_template: "{{ condition.state != 'None' }}"
+              value_template: "{{ condition.state and condition.state != 'None' }}"
           then:
             # ===================================================================
             # "FUNCTION": &fn_send_zwave_led_commands
@@ -1331,7 +1331,7 @@ action:
               # Validate and call the Z-Wave execution function
               - if:
                   - condition: template
-                    value_template: "{{ condition.state != 'None' }}"
+                    value_template: "{{ condition.state and condition.state != 'None' }}"
                 then:
                   sequence: *fn_send_zwave_led_commands
 
