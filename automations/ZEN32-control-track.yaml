@@ -9,10 +9,10 @@ blueprint:
 
     Originally: https://raw.githubusercontent.com/rwalker777/Zen32-HA-Blueprint/refs/heads/main/ZEN32-control-track.yaml
 
-    **Version**: 2026.4.0
+    **Version**: 2026.9.0
   domain: automation
   homeassistant:
-    min_version: 2024.6.0
+    min_version: 2026.8.0
 
   input:
     Switch_params:
@@ -812,6 +812,12 @@ max: 10
 variables:
   # --- Hardware Configuration ---
   controller_id: !input "zooz_switch"
+  # True when the ZEN controller is reachable: at least one of its entities has a real state
+  # and the zwave_js config entry is loaded.
+  # zwave_js marks a node's entities unavailable while Z-Wave JS is down/restarting or the node
+  # is dead; before the integration loads at boot the entities are absent from the state machine.
+  zwave_ready: &zwave_ready_tpl >-
+    {{ expand(device_entities(controller_id)) | rejectattr('state', 'in', ['unavailable', 'unknown']) | list | count > 0 and config_entry_attr(config_entry_id(device_entities(controller_id) | first), 'state') == 'loaded' }}
   input_p19: !input "p19_relay_control"
   input_p20: !input "p20_relay_led_report"
 
@@ -918,6 +924,7 @@ variables:
 
 # Track override entry if set, else get first entity in scene, if neither set to empty
 trigger_variables:
+  zooz_switch_tv: !input "zooz_switch"
   schedule_start: !input "schedule_start"
   schedule_stop: !input "schedule_stop"
   night_entity: !input "night_entity"
@@ -1012,6 +1019,13 @@ trigger:
     id: "HassStart"
     platform: homeassistant
     event: start
+  # Repaint LEDs that were skipped while Z-Wave JS was down or restarting.
+  - alias: "ZWaveReady"
+    id: "ZWaveReady"
+    platform: template
+    value_template: >-
+      {{ expand(device_entities(zooz_switch_tv)) | rejectattr('state', 'in', ['unavailable', 'unknown']) | list | count > 0 and config_entry_attr(config_entry_id(device_entities(zooz_switch_tv) | first), 'state') == 'loaded' }}
+    for: "00:00:30"
   - platform: state
     not_to:
     entity_id: !input "input_entity0"
@@ -1170,7 +1184,7 @@ action:
     # (e.g., a smart lock or a light bulb) changes its state.
     # It updates ONLY that specific button's LED.
     # ---------------------------------------------------------------------
-    - conditions: "{{ trigger.id == 'StateTrigger' }}"
+    - conditions: "{{ trigger.id == 'StateTrigger' and zwave_ready }}"
       alias: "SingleButtonStateUpdate"
       sequence:
         # --- Define "Arguments" for the Anchor Function ---
@@ -1273,11 +1287,16 @@ action:
     # one button, it loops through every button and repaints the entire
     # switch to ensure all LEDs match the new Day/Night/Toggle reality.
     # ---------------------------------------------------------------------
+    # HassStart is not gated on zwave_ready: Z-Wave JS is not up yet at boot, so it
+    # waits for readiness below instead.
     - conditions: >
-        {{ 
-          (trigger.id in ['NightTime', 'DayTime'] and schedule_set) or 
-          (trigger.id == 'HassStart') or 
-          (trigger.id == 'EntityToggle' and schedule_set) 
+        {{
+          (trigger.id == 'HassStart') or
+          (zwave_ready and (
+            (trigger.id in ['NightTime', 'DayTime'] and schedule_set) or
+            (trigger.id == 'EntityToggle' and schedule_set) or
+            (trigger.id == 'ZWaveReady')
+          ))
         }}
       alias: "UniversalRefreshAction"
       sequence:
@@ -1291,6 +1310,10 @@ action:
               value_template: "{{ trigger.id == 'HassStart' }}"
           then:
             - delay: "00:01:00"
+            # Then wait for the controller's entities to come alive; abort quietly if Z-Wave never comes up.
+            - wait_template: *zwave_ready_tpl
+              timeout: "00:05:00"
+              continue_on_timeout: false
 
         # ===================================================================
         # "FUNCTION": &fn_disable_untracked_leds
@@ -1341,7 +1364,7 @@ action:
     # It fires immediately whenever the automation is saved,
     # ensuring the switch parameters stay synced with the current settings
     # ---------------------------------------------------------------------
-    - conditions: "{{ trigger.id == 'AutomationUpdate' }}"
+    - conditions: "{{ trigger.id == 'AutomationUpdate' and zwave_ready }}"
       alias: "AutomationUpdateAction"
       sequence:
         - if:
